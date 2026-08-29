@@ -12,6 +12,7 @@ _( НЕ РЕКОМЕНДУЕТСЯ ИСПОЛЬЗОВАТЬ БРАУЗЕРЫ С 
 https://raw.githubusercontent.com/pianino2/gf-util/refs/heads/main/script.js
 ```
 ![step4](/md_img/inst4.png)
+
 # Если вы используете Chromium-подобный браузер - придётся проделать дополнительные действия, ака. предоставление разрешений расширению TamperMonkey. Жмём ПКМ по расширению
 ![step5](/md_img/inst7.png)
 # Управление расширениями
@@ -41,3 +42,7 @@ https://raw.githubusercontent.com/pianino2/gf-util/refs/heads/main/script.js
 
 # Если всё сделано правильно - появиться ватермарка. Открывать меню настроек на правый SHIFT ( ака. RSHIFT )
 ![step1337](/md_img/inst6.png)
+
+# Если всё сделано правильно - появиться ватермарка. Открывать меню настроек на правый SHIFT
+![step5](/md_img/inst6.png)
+
