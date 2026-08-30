@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         GF.util
 // @namespace    GF.util
-// @version      0.0.1
+// @version      0.0.2
 // @description  LOL
 // @match        https://gofrag.ru/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
 // @run-at       document-end
+// @updateURL   https://github.com/pianino2/gf-util/raw/main/script.js
+// @downloadURL https://github.com/pianino2/gf-util/raw/main/script.js
 // ==/UserScript==
 
 (function () {
@@ -464,7 +466,7 @@
         .gf-home-hello b { color: #4296fa; }
         .gf-home-ver { color: #999; font-size: 11.5px; margin-bottom: 0; }
         .gf-home-btn { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; text-align: left; background: var(--im-btn); border: none; color: var(--im-text); font: inherit; padding: 5px 12px; cursor: pointer; margin-bottom: 6px; text-decoration: none; }
-        .gf-home-btn:hover { background: var(--im-btnh); }
+        .gf-home-btn:hover { background: var(--im-btnh); color: var(--im-text) !important; }
         .gf-home-btn:active { background: var(--im-btna); }
         .gf-home-btn .gf-home-arrow { margin-left: auto; color: rgba(230,230,230,0.55); }
         .gf-home-toprow { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
@@ -537,7 +539,7 @@
                     <div class="gf-home-toprow">
                         <div>
                             <div class="gf-home-hello">${t('welcome')} <b>${getCurrentUsername()}</b></div>
-                            <div class="gf-home-ver">gf.util v0.0.1</div>
+                            <div class="gf-home-ver">gf.util v0.0.2</div>
                         </div>
                         <div class="gf-lang-switch">
                             <button type="button" class="gf-lang-btn gf-flag-ru${settings.general.lang === 'ru' ? ' active' : ''}" data-lang="ru" title="Русский"></button>
@@ -1116,6 +1118,7 @@
                         });
                         setFeedStatus(feedResultText(res));
                     } else if (isQuietFail(res)) {
+                    } else if (res.msg === t('csrf_err')) {
                     } else {
                         showToast({ title: t('feeder'), line1: t('autofeed_fail'), line2: (res.data && (res.data.message || res.data.error)) || res.msg || '', life: 3200 });
                         setFeedStatus(feedResultText(res));
@@ -1143,6 +1146,7 @@
                         });
                         setFeedStatusDev(devourerResultText(res));
                     } else if (isQuietFail(res)) {
+                    } else if (res.msg === t('csrf_err')) {
                     } else {
                         showToast({ title: t('devourer'), line1: t('autofeed_fail'), line2: (res.data && (res.data.message || res.data.error)) || res.msg || '', life: 3200 });
                         setFeedStatusDev(devourerResultText(res));
