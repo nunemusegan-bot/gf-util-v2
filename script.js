@@ -1,15 +1,15 @@
 // ==UserScript==
 // @name         GF.util
 // @namespace    GF.util
-// @version      0.0.2
+// @version      0.0.3
 // @description  LOL
 // @match        https://gofrag.ru/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
+// @updateURL    https://github.com/pianino2/gf-util/raw/main/script.js
+// @downloadURL  https://github.com/pianino2/gf-util/raw/main/script.js
 // @run-at       document-end
-// @updateURL   https://github.com/pianino2/gf-util/raw/main/script.js
-// @downloadURL https://github.com/pianino2/gf-util/raw/main/script.js
 // ==/UserScript==
 
 (function () {
@@ -19,7 +19,7 @@
         en: {
             nav_home: 'Home', nav_window: 'Window', nav_theme: 'Theme', nav_gamepage: 'Game Page', nav_cat: 'Cat', nav_extras: 'Extras',
             welcome: 'Welcome,', tg: 'Join TG channel', gh: 'Source code on GitHub',
-            winopts: 'Window options', opacity: 'Opacity', nomove: 'No move', noresize: 'No resize', startup_toast: 'Startup toast',
+            winopts: 'Window options', opacity: 'Opacity', nomove: 'No move', noresize: 'No resize', startup_toast: 'Startup toast', sidebar_btn: 'Show "gf.util" button',
             watermark: 'Watermark', wm_enabled: 'Enabled', wm_corner: 'Corner', corner_tl: 'Top left', corner_tr: 'Top right', corner_bl: 'Bottom left', corner_br: 'Bottom right',
             wm_user: 'Username', wm_time: 'Date & time', wm_fps: 'FPS counter',
             hotkey: 'Hotkey', key: 'Key', press_any: 'Press any key...',
@@ -47,7 +47,7 @@
         ru: {
             nav_home: 'Главная', nav_window: 'Окно', nav_theme: 'Тема', nav_gamepage: 'Стр. игры', nav_cat: 'Кот', nav_extras: 'Разное',
             welcome: 'Привет,', tg: 'Telegram-канал', gh: 'Исходники на GitHub',
-            winopts: 'Параметры окна', opacity: 'Прозрачность', nomove: 'Не двигать', noresize: 'Не растягивать', startup_toast: 'Стартовый тост',
+            winopts: 'Параметры окна', opacity: 'Прозрачность', nomove: 'Не двигать', noresize: 'Не растягивать', startup_toast: 'Стартовый тост', sidebar_btn: 'Кнопка «gf.util»',
             watermark: 'Ватермарка', wm_enabled: 'Включена', wm_corner: 'Угол', corner_tl: 'Левый верх', corner_tr: 'Правый верх', corner_bl: 'Левый низ', corner_br: 'Правый низ',
             wm_user: 'Ник', wm_time: 'Дата и время', wm_fps: 'Счётчик FPS',
             hotkey: 'Хоткей', key: 'Клавиша', press_any: 'Нажмите клавишу...',
@@ -123,6 +123,7 @@
     const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'KeyB', 'KeyA'];
     let konamiPos = 0;
     let fakePremod = null;
+    let openMenuHook = null;
 
     function toggleFakePremod() {
         if (fakePremod && fakePremod.isConnected) {
@@ -149,11 +150,35 @@
         showToast({ title: 'gf.util', line1: ':-)', line2: 'A fake premoderation tab has appeared', life: 3600 });
     }
 
+    function injectSidebarButton() {
+        if (!settings.window.sidebarButton) return;
+        const guild = document.querySelector('.gf-fc2__guild');
+        if (!guild || guild.querySelector('.gf-sidebar-btn')) return;
+        const a = document.createElement('a');
+        a.className = 'gf-fc2__glink gf-sidebar-btn';
+        a.href = '#';
+        a.innerHTML = '<span class="gf-fc2__glink-label">gf.util</span>';
+        a.addEventListener('click', e => {
+            e.preventDefault();
+            if (openMenuHook) openMenuHook();
+        });
+        guild.appendChild(a);
+    }
+
+    function removeSidebarButton() {
+        document.querySelectorAll('.gf-sidebar-btn').forEach(b => b.remove());
+    }
+
+    function syncSidebarButton() {
+        if (settings.window.sidebarButton) injectSidebarButton();
+        else removeSidebarButton();
+    }
+
     const DEFAULTS = {
         general: { lang: 'en' },
         window: {
             opacity: 94, noMove: false, noResize: false, anim: 'zoom', animDuration: 180,
-            hotkey: 'ShiftRight', showStartupToast: true,
+            hotkey: 'ShiftRight', showStartupToast: true, sidebarButton: false,
             watermark: true, watermarkUser: true, watermarkTime: false, watermarkFps: false,
             watermarkCorner: 'tl'
         },
@@ -467,7 +492,7 @@
         .gf-home-ver { color: #999; font-size: 11.5px; margin-bottom: 0; }
         .gf-home-btn { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; text-align: left; background: var(--im-btn); border: none; color: var(--im-text); font: inherit; padding: 5px 12px; cursor: pointer; margin-bottom: 6px; text-decoration: none; }
         .gf-home-btn:hover { background: var(--im-btnh); color: var(--im-text) !important; }
-        .gf-home-btn:active { background: var(--im-btna); }
+        .gf-home-btn:active { background: var(--im-btna); color: var(--im-text) !important; }
         .gf-home-btn .gf-home-arrow { margin-left: auto; color: rgba(230,230,230,0.55); }
         .gf-home-toprow { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
         .gf-lang-switch { display: flex; gap: 4px; flex-shrink: 0; }
@@ -513,6 +538,8 @@
             background: var(--egg-bg, #f472b6) !important;
             white-space: nowrap; user-select: none;
         }
+        .gf-sidebar-btn .gf-fc2__glink-label { color: #4296fa !important; }
+        .gf-sidebar-btn:hover .gf-fc2__glink-label { color: #6ab4ff !important; }
     `);
 
     function tree(id, title, bodyHtml) { return `<div class="gf-tree open" data-tree="${id}"><div class="gf-tree-head"><span class="gf-tree-arrow">&#9656;</span>${title}</div><div class="gf-tree-body">${bodyHtml}</div></div>`; }
@@ -539,7 +566,7 @@
                     <div class="gf-home-toprow">
                         <div>
                             <div class="gf-home-hello">${t('welcome')} <b>${getCurrentUsername()}</b></div>
-                            <div class="gf-home-ver">gf.util v0.0.2</div>
+                            <div class="gf-home-ver">gf.util v0.0.3</div>
                         </div>
                         <div class="gf-lang-switch">
                             <button type="button" class="gf-lang-btn gf-flag-ru${settings.general.lang === 'ru' ? ' active' : ''}" data-lang="ru" title="Русский"></button>
@@ -550,7 +577,7 @@
                     <a class="gf-home-btn" href="https://github.com/pianino2/gf-util" target="_blank" rel="noopener noreferrer">${t('gh')} <span class="gf-home-arrow">&#8599;</span></a>
                 </div>
                 <div class="gf-pane" data-pane="window">
-                    ${tree('winopts', t('winopts'), `${sliderRow('gf-op', t('opacity'), 40, 100, settings.window.opacity, '%')}${checkRow('gf-nomove', t('nomove'), settings.window.noMove)}${checkRow('gf-noresize', t('noresize'), settings.window.noResize)}${checkRow('gf-toast-toggle', t('startup_toast'), settings.window.showStartupToast)}`)}
+                    ${tree('winopts', t('winopts'), `${sliderRow('gf-op', t('opacity'), 40, 100, settings.window.opacity, '%')}${checkRow('gf-nomove', t('nomove'), settings.window.noMove)}${checkRow('gf-noresize', t('noresize'), settings.window.noResize)}${checkRow('gf-toast-toggle', t('startup_toast'), settings.window.showStartupToast)}${checkRow('gf-sidebar-toggle', t('sidebar_btn'), settings.window.sidebarButton)}`)}
                     ${tree('watermark', t('watermark'), `
                         ${checkRow('gf-wm-on', t('wm_enabled'), settings.window.watermark)}
                         <div class="gf-row"><div class="gf-selectwrap"><select class="gf-select" id="gf-wm-corner">
@@ -608,7 +635,7 @@
         document.body.appendChild(menu); return menu;
     }
 
-    function showToast({ title = 'gf.util', line1 = '', line2 = '', life = 4200 } = {}) {
+    function showToast({ title = 'gf.util', line1 = '', line2 = '', life = 4200, onClick = null } = {}) {
         let wrap = document.getElementById('gf-toasts');
         if (!wrap) { wrap = document.createElement('div'); wrap.id = 'gf-toasts'; document.body.appendChild(wrap); }
         const el = document.createElement('div');
@@ -641,7 +668,7 @@
             };
             requestAnimationFrame(stepOut);
         }
-        el.addEventListener('click', close);
+        el.addEventListener('click', () => { if (onClick) onClick(); close(); });
         el.style.display = 'flex';
         const step = (now) => {
             if (done) return;
@@ -665,7 +692,8 @@
         showToast({
             title: 'gf.util',
             line1: t('toast_loaded'),
-            line2: tf('toast_open', { KEY: keyDisplayName(settings.window.hotkey) })
+            line2: tf('toast_open', { KEY: keyDisplayName(settings.window.hotkey) }),
+            onClick: () => { if (openMenuHook) openMenuHook(); }
         });
     }
 
@@ -901,6 +929,7 @@
             loadAllObserver = new MutationObserver(() => {
                 injectLoadAllBtn();
                 applyEggBadges();
+                injectSidebarButton();
             });
             loadAllObserver.observe(document.body, { childList: true, subtree: true });
         }
@@ -916,6 +945,7 @@
         syncWatermark();
         initLoadAllComments();
         applyEggBadges();
+        syncSidebarButton();
 
         function clampToViewport() {
             const w = menu.offsetWidth, h = menu.offsetHeight;
@@ -974,6 +1004,7 @@
         }
         function toggleMenu() { menuOpen ? hideMenu() : showMenu(); }
         stopMenuAnimHook = stopMenuAnim;
+        openMenuHook = showMenu;
 
         const TEXT_INPUTS = ['text', 'password', 'search', 'url', 'email', 'number', 'tel'];
         const hkBtn = qs('#gf-hotkey-btn'); let listening = false;
@@ -1052,6 +1083,9 @@
         qs('#gf-nomove').addEventListener('change', e => { settings.window.noMove = e.target.checked; save(); });
         qs('#gf-noresize').addEventListener('change', e => { settings.window.noResize = e.target.checked; save(); syncWindowOpts(); });
         qs('#gf-toast-toggle').addEventListener('change', e => { settings.window.showStartupToast = e.target.checked; save(); });
+        qs('#gf-sidebar-toggle').addEventListener('change', e => {
+            settings.window.sidebarButton = e.target.checked; save(); syncSidebarButton();
+        });
         syncWindowOpts();
 
         qs('#gf-wm-on').addEventListener('change', e => { settings.window.watermark = e.target.checked; save(); syncWatermark(); });
