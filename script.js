@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GF.util
 // @namespace    GF.util
-// @version      0.0.3
+// @version      0.1.0
 // @description  LOL
 // @match        https://gofrag.ru/*
 // @grant        GM_setValue
@@ -28,9 +28,10 @@
             tint: 'Colors (tint)', tint_lab: 'Tint', amount: 'Amount',
             bg: 'Background', bg_url_ph: 'Image URL', browse: 'Browse...', blur: 'Blur', dim: 'Dim', clear: 'Clear',
             font: 'Font', family: 'Family', font_default: 'Default (Nunito)', font_system: 'System UI', font_serif: 'Serif (Georgia)',
+            cursor: 'Cursor changer', cursor_mode: 'Mode', cursor_default: 'Default', cursor_dot: 'Dot', cursor_cross: 'Crosshair', cursor_circle: 'Circle', cursor_arrow: 'Arrow', cursor_color: 'Color', cursor_smooth: 'Smoothness', cursor_size: 'Size', cursor_width: 'Width', cursor_alpha: 'Opacity', cursor_anim: 'Animation',
             reset_theme: 'Reset theme',
             tools: 'Tools', random: 'Random gradient', io: 'Export / Import', io_ph: 'Settings JSON', export: 'Export', import: 'Import', reset_all: 'Reset all',
-            comments: 'Comments', show_loadall: 'Show "Load all" button',
+            comments: 'Comments', show_loadall: 'Show "Load all" button', enter_submit: 'Submit on Enter',
             feeder: 'Cat feeder', autofeed: 'Auto feed on page load', feednow: 'Feed now',
             devourer: 'Devourer cat',
             changer: 'Cat changer', breed: 'Breed', stage: 'Stage', breed_auto: 'Auto (site default)', stage_auto: 'Auto (current)', reset: 'Reset',
@@ -56,9 +57,10 @@
             tint: 'Цвета (тинт)', tint_lab: 'Тинт', amount: 'Сила',
             bg: 'Фон', bg_url_ph: 'Ссылка на картинку', browse: 'Файл...', blur: 'Блюр', dim: 'Затемнение', clear: 'Убрать',
             font: 'Шрифт', family: 'Гарнитура', font_default: 'Сайт (Nunito)', font_system: 'Системный', font_serif: 'Serif (Georgia)',
+            cursor: 'Смена курсора', cursor_mode: 'Режим', cursor_default: 'Обычный', cursor_dot: 'Точка', cursor_cross: 'Перекрестие', cursor_circle: 'Кружок', cursor_arrow: 'Стрелка', cursor_color: 'Цвет', cursor_smooth: 'Плавность', cursor_size: 'Размер', cursor_width: 'Толщина', cursor_alpha: 'Прозрачность', cursor_anim: 'Анимация',
             reset_theme: 'Сбросить тему',
             tools: 'Инструменты', random: 'Случайный градиент', io: 'Экспорт / Импорт', io_ph: 'JSON настроек', export: 'Экспорт', import: 'Импорт', reset_all: 'Сбросить всё',
-            comments: 'Комментарии', show_loadall: 'Кнопка «Загрузить все»',
+            comments: 'Комментарии', show_loadall: 'Кнопка «Загрузить все»', enter_submit: 'Отправка по Enter',
             feeder: 'Кормление кота', autofeed: 'Автокорм при загрузке', feednow: 'Покормить',
             devourer: 'Кот-поглотитель',
             changer: 'Смена кота', breed: 'Порода', stage: 'Стадия', breed_auto: 'Авто (как на сайте)', stage_auto: 'Авто (текущая)', reset: 'Сброс',
@@ -76,7 +78,7 @@
     function t(k) { return (I18N[settings.general.lang] && I18N[settings.general.lang][k]) || I18N.en[k] || k; }
     function tf(k, vars) { let s = t(k); for (const v in vars) s = s.split('{' + v + '}').join(vars[v]); return s; }
 
-    const EGG_USERS = [ //кароч сюда добавляешь/сносишь посхалочных юзеров. Кто удалит нас двоих - гей😎😎😎😎
+    const EGG_USERS = [
         { slug: 'pianino2', label: 'Фембойчик :3', nameMatch: 'pianino', bg: '#f472b6' },
         { slug: 'daniil5x', label: 'ЗЛО', nameMatch: 'daniil', bg: '#fdba74' }
     ];
@@ -182,9 +184,14 @@
             watermark: true, watermarkUser: true, watermarkTime: false, watermarkFps: false,
             watermarkCorner: 'tl'
         },
-        gamepage: { commentsLoadAll: false },
+        gamepage: { commentsLoadAll: false, enterSubmit: false },
         cat: { autoFeed: false, autoFeedDevourer: false, breed: 'auto', stage: 'auto' },
-        theme: { tintColor1: '#4296fa', tintColor2: '#3169bd', tintAmount: 0, bgImage: '', bgBlur: 0, bgDim: 40, font: { family: 'default' } }
+        theme: {
+            tintColor1: '#4296fa', tintColor2: '#3169bd', tintAmount: 0,
+            bgImage: '', bgBlur: 0, bgDim: 40,
+            font: { family: 'default' },
+            cursor: { mode: 'default', color: '#ffffff', smooth: 60, size: 12, width: 2, alpha: 100, anim: true }
+        }
     };
 
     function deepMerge(base, over) {
@@ -334,8 +341,149 @@
             [class*="icon-"], [class^="icon-"], .uk-icon, [class*="uk-icon-"] { font-family: IcoMoon !important; }
         ` : '';
     }
+    
+    let curEl = null, curRaf = null;
+    let curX = 0, curY = 0, targetX = 0, targetY = 0;
+    const CURSOR_CUSTOM = ['dot', 'cross', 'circle', 'arrow'];
+    let cursorLoopLast = 0;
 
-    function applyAll() { applyTint(); applyBg(); applyFont(); }
+    function cursorStyleTag() { return ensureStyleTag('gf-cursor-style'); }
+
+    function buildCursorVisual(mode) {
+        const c = settings.theme.cursor;
+        const s = c.size;
+        const w = c.width;
+        const col = c.color;
+        switch (mode) {
+            case 'dot':
+                return `<div style="position:absolute;left:50%;top:50%;width:${s}px;height:${s}px;margin:${-s / 2}px 0 0 ${-s / 2}px;border-radius:50%;background:${col};box-shadow:0 0 6px rgba(0,0,0,.55)"></div>`;
+            case 'cross':
+                return `<div style="position:absolute;left:50%;top:50%;width:${s * 2}px;height:${s * 2}px;margin:${-s}px 0 0 ${-s}px">
+                    <div style="position:absolute;left:50%;top:0;bottom:0;width:${w}px;margin-left:${-w / 2}px;background:${col}"></div>
+                    <div style="position:absolute;top:50%;left:0;right:0;height:${w}px;margin-top:${-w / 2}px;background:${col}"></div>
+                </div>`;
+            case 'circle':
+                return `<div style="position:absolute;left:50%;top:50%;width:${s * 2.2}px;height:${s * 2.2}px;margin:${-s * 1.1}px 0 0 ${-s * 1.1}px;border-radius:50%;border:${w}px solid ${col};box-sizing:border-box"></div>
+                    <div style="position:absolute;left:50%;top:50%;width:${w + 1}px;height:${w + 1}px;margin:${-(w + 1) / 2}px 0 0 ${-(w + 1) / 2}px;border-radius:50%;background:${col}"></div>`;
+            case 'arrow':
+                return `<div style="position:absolute;left:50%;top:50%;width:0;height:0;margin:-1px 0 0 -1px;border-top:${s * 1.2}px solid ${col};border-right:${s * 0.8}px solid transparent;transform:rotate(-8deg);filter:drop-shadow(0 0 3px rgba(0,0,0,.5))"></div>`;
+        }
+        return '';
+    }
+
+    function applyCursor() {
+        const mode = settings.theme.cursor.mode;
+        const style = cursorStyleTag();
+
+        if (mode === 'default' || !CURSOR_CUSTOM.includes(mode)) {
+            style.textContent = '';
+            if (curEl) { curEl.remove(); curEl = null; }
+            if (curRaf) { cancelAnimationFrame(curRaf); curRaf = null; }
+            return;
+        }
+
+        style.textContent = `* { cursor: none !important; }`;
+
+        if (!curEl) {
+            curEl = document.createElement('div');
+            curEl.id = 'gf-cursor';
+            const inner = document.createElement('div');
+            inner.id = 'gf-cursor-inner';
+            curEl.appendChild(inner);
+            document.body.appendChild(curEl);
+            curX = targetX; curY = targetY;
+        }
+
+        const inner = curEl.querySelector('#gf-cursor-inner');
+        inner.innerHTML = buildCursorVisual(mode);
+        curEl.style.opacity = String(settings.theme.cursor.alpha / 100);
+        startCursorLoop();
+    }
+
+    function startCursorLoop() {
+        if (curRaf) return;
+        cursorLoopLast = performance.now();
+        const step = (now) => {
+            const smooth = settings.theme.cursor.smooth;
+            let k;
+            if (smooth <= 0) k = 1;
+            else {
+                const dt = Math.min(64, now - cursorLoopLast);
+                cursorLoopLast = now;
+                k = 1 - Math.pow(0.05, (dt / 16.66) / (smooth / 60));
+                k = Math.min(1, Math.max(0.1, k));
+            }
+            curX += (targetX - curX) * k;
+            curY += (targetY - curY) * k;
+            if (Math.abs(targetX - curX) < 0.1) curX = targetX;
+            if (Math.abs(targetY - curY) < 0.1) curY = targetY;
+            curEl.style.transform = `translate3d(${curX}px, ${curY}px, 0)`;
+            curRaf = requestAnimationFrame(step);
+        };
+        curRaf = requestAnimationFrame(step);
+    }
+
+    document.addEventListener('mousemove', e => {
+        targetX = e.clientX; targetY = e.clientY;
+    }, true);
+
+    document.addEventListener('mousedown', () => {
+        if (!curEl || !settings.theme.cursor.anim) return;
+        const inner = curEl.querySelector('#gf-cursor-inner');
+        if (!inner) return;
+        inner.classList.remove('gf-pop');
+        void inner.offsetWidth;
+        inner.classList.add('gf-pop');
+    }, true);
+
+    function applyAll() { applyTint(); applyBg(); applyFont(); applyCursor(); }
+
+    function findSubmitButton(scope) {
+        if (!scope) return null;
+        const sels = [
+            'button.gfc-submit', 'button.gf-cm-submit', 'button[type="submit"]', 'input[type="submit"]',
+            'button[class*="submit"]', 'a[class*="submit"]'
+        ];
+        for (const sel of sels) {
+            const btn = scope.querySelector(sel);
+            if (btn) return btn;
+        }
+        for (const b of scope.querySelectorAll('button')) {
+            const txt = (b.textContent || '').trim().toLowerCase();
+            if (txt === 'отправить' || txt === 'submit' || txt === 'send') return b;
+        }
+        return null;
+    }
+
+    function submitCommentField(el) {
+        let scope = el.parentElement;
+        for (let i = 0; i < 6 && scope; i++) {
+            const btn = findSubmitButton(scope);
+            if (btn) { btn.click(); return true; }
+            if (scope.tagName && scope.tagName.toLowerCase() === 'form') break;
+            scope = scope.parentElement;
+        }
+        const form = el.closest('form');
+        if (form) {
+            const btn = form.querySelector('button[type="submit"], input[type="submit"]');
+            if (btn) { btn.click(); return true; }
+            if (form.requestSubmit) { form.requestSubmit(); return true; }
+        }
+        return false;
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+        if (!settings.gamepage.enterSubmit) return;
+        const el = e.target;
+        const tag = (el.tagName || '').toLowerCase();
+        if (tag !== 'textarea' && tag !== 'input') return;
+        if (el.isContentEditable) return;
+        if (tag === 'textarea' && !(el.value || '').trim()) return;
+        if (el.closest('#gf-menu')) return;
+        if (el.closest('.gf-search')) return;
+        if (submitCommentField(el)) e.preventDefault();
+    }, true);
 
     const IM_IDENT = { o: 1, x: 0, y: 0, s: 1 };
     const ANIM_TYPES = {
@@ -398,6 +546,18 @@
         #gf-tint-layer { position: fixed; inset: 0; z-index: 2147483000; pointer-events: none; mix-blend-mode: color; display: none; }
         #gf-bg-layer { position: fixed; inset: -20px; z-index: -1; background-size: cover; background-position: center; transform: scale(1.06); display: none; }
         #gf-bg-dim { position: absolute; inset: -20px; }
+        #gf-cursor {
+            position: fixed; left: 0; top: 0; z-index: 9999999999;
+            pointer-events: none; width: 0; height: 0; will-change: transform;
+        }
+        #gf-cursor-inner { width: 0; height: 0; }
+        #gf-cursor-inner.gf-pop { animation: gf-cursor-pop 160ms ease-out; }
+        @keyframes gf-cursor-pop {
+            0% { transform: scale(1); }
+            35% { transform: scale(1.9); }
+            65% { transform: scale(0.55); }
+            100% { transform: scale(1); }
+        }
         #gf-menu {
             --im-text: #e6e6e6; --im-textdis: #999999; --im-border: rgba(110,110,110,0.25);
             --im-frame: #292929; --im-frameh: #323232; --im-framea: #454545;
@@ -477,7 +637,7 @@
         #gf-menu ::-webkit-scrollbar-thumb { background: #4f4f4f; border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
         #gf-menu ::-webkit-scrollbar-thumb:hover { background-color: #696969; }
         #gf-menu ::-webkit-scrollbar-corner { background: transparent; }
-        #gf-toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column-reverse; gap: 8px; z-index: 2147483646; pointer-events: none; }
+        #gf-toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column-reverse; gap: 8px; z-index: 2147483645; pointer-events: none; }
         .gf-toast { pointer-events: auto; width: 262px; background: rgba(15,15,15,0.94); border: 1px solid rgba(110,110,110,0.25); color: #e6e6e6; font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 13px; line-height: 1.4; user-select: none; cursor: pointer; display: none; flex-direction: column; }
         .gf-toast-title { background: #292929; padding: 4px 8px; font-size: 12px; color: #d4d4d4; display: flex; justify-content: space-between; align-items: center; }
         .gf-toast-x { color: rgba(230,230,230,0.6); padding: 0 3px; font-size: 11px; }
@@ -566,7 +726,7 @@
                     <div class="gf-home-toprow">
                         <div>
                             <div class="gf-home-hello">${t('welcome')} <b>${getCurrentUsername()}</b></div>
-                            <div class="gf-home-ver">gf.util v0.0.3</div>
+                            <div class="gf-home-ver">gf.util v0.1.0</div>
                         </div>
                         <div class="gf-lang-switch">
                             <button type="button" class="gf-lang-btn gf-flag-ru${settings.general.lang === 'ru' ? ' active' : ''}" data-lang="ru" title="Русский"></button>
@@ -597,10 +757,25 @@
                     ${tree('tint', t('tint'), `<div class="gf-row"><div class="gf-swatches"><div class="gf-swatch" id="gf-sw1"><input type="color" id="gf-c1" value="${settings.theme.tintColor1}"></div><div class="gf-swatch" id="gf-sw2"><input type="color" id="gf-c2" value="${settings.theme.tintColor2}"></div></div><span class="gf-lab">${t('tint_lab')}</span></div>${sliderRow('gf-amt', t('amount'), 0, 100, settings.theme.tintAmount, '%')}`)}
                     ${tree('bg', t('bg'), `<div class="gf-row"><input type="text" class="gf-input" id="gf-bgurl" style="flex:1" placeholder="${t('bg_url_ph')}" value="${settings.theme.bgImage.startsWith('data:') ? '' : settings.theme.bgImage}"><button class="gf-btn" id="gf-browse">${t('browse')}</button><input type="file" id="gf-bgfile" accept="image/*" style="display:none"></div>${sliderRow('gf-blur', t('blur'), 0, 40, settings.theme.bgBlur, 'px')}${sliderRow('gf-dim', t('dim'), 0, 90, settings.theme.bgDim, '%')}<div class="gf-row" style="margin-top:2px"><button class="gf-btn" id="gf-bgclear">${t('clear')}</button></div>`)}
                     ${tree('font', t('font'), `<div class="gf-row"><div class="gf-selectwrap"><select class="gf-select" id="gf-font"><option value="default">${t('font_default')}</option><option value="system">${t('font_system')}</option><option value="roboto">Roboto</option><option value="montserrat">Montserrat</option><option value="mono">JetBrains Mono</option><option value="serif">${t('font_serif')}</option><option value="comic">Comic Neue</option></select></div><span class="gf-lab">${t('family')}</span></div>`)}
+                    ${tree('cursor', t('cursor'), `
+                        <div class="gf-row"><div class="gf-selectwrap"><select class="gf-select" id="gf-curmode">
+                            <option value="default">${t('cursor_default')}</option>
+                            <option value="dot">${t('cursor_dot')}</option>
+                            <option value="cross">${t('cursor_cross')}</option>
+                            <option value="circle">${t('cursor_circle')}</option>
+                            <option value="arrow">${t('cursor_arrow')}</option>
+                        </select></div><span class="gf-lab">${t('cursor_mode')}</span></div>
+                        <div class="gf-row"><div class="gf-swatches"><div class="gf-swatch" id="gf-swcur"><input type="color" id="gf-cursor-color" value="${settings.theme.cursor.color}"></div></div><span class="gf-lab">${t('cursor_color')}</span></div>
+                        ${sliderRow('gf-cursor-smooth', t('cursor_smooth'), 0, 150, settings.theme.cursor.smooth, 'ms')}
+                        ${sliderRow('gf-cursor-size', t('cursor_size'), 6, 24, settings.theme.cursor.size, 'px')}
+                        ${sliderRow('gf-cursor-width', t('cursor_width'), 1, 6, settings.theme.cursor.width, 'px')}
+                        ${sliderRow('gf-cursor-alpha', t('cursor_alpha'), 10, 100, settings.theme.cursor.alpha, '%')}
+                        ${checkRow('gf-cursor-anim', t('cursor_anim'), settings.theme.cursor.anim)}
+                    `)}
                     <div class="gf-row" style="margin-top:8px"><button class="gf-btn" id="gf-reset-theme">${t('reset_theme')}</button></div>
                 </div>
                 <div class="gf-pane" data-pane="gamepage">
-                    ${tree('gpcomments', t('comments'), `${checkRow('gf-gp-loadall', t('show_loadall'), settings.gamepage.commentsLoadAll)}`)}
+                    ${tree('gpcomments', t('comments'), `${checkRow('gf-gp-loadall', t('show_loadall'), settings.gamepage.commentsLoadAll)}${checkRow('gf-entersubmit', t('enter_submit'), settings.gamepage.enterSubmit)}`)}
                 </div>
                 <div class="gf-pane" data-pane="cat">
                     ${tree('feeder', t('feeder'), `${checkRow('gf-autofeed', t('autofeed'), settings.cat.autoFeed)}<div class="gf-row"><button class="gf-btn" id="gf-feednow">${t('feednow')}</button></div><div class="gf-feed-status" id="gf-feed-status"></div>`)}
@@ -1121,6 +1296,18 @@
         wireSlider('gf-dim', v => { settings.theme.bgDim = v; applyBg(); save(); }, v => v + '%');
         const fontSel = qs('#gf-font'); fontSel.value = settings.theme.font.family;
         fontSel.addEventListener('change', () => { settings.theme.font.family = fontSel.value; applyFont(); save(); });
+
+        const curModeSel = qs('#gf-curmode'); curModeSel.value = settings.theme.cursor.mode;
+        curModeSel.addEventListener('change', () => { settings.theme.cursor.mode = curModeSel.value; save(); applyCursor(); });
+        const curColorInput = qs('#gf-cursor-color'), swCur = qs('#gf-swcur');
+        swCur.style.background = curColorInput.value;
+        curColorInput.addEventListener('input', () => { settings.theme.cursor.color = curColorInput.value; swCur.style.background = curColorInput.value; applyCursor(); save(); });
+        wireSlider('gf-cursor-smooth', v => { settings.theme.cursor.smooth = v; save(); }, v => v + 'ms');
+        wireSlider('gf-cursor-size', v => { settings.theme.cursor.size = v; applyCursor(); save(); }, v => v + 'px');
+        wireSlider('gf-cursor-width', v => { settings.theme.cursor.width = v; applyCursor(); save(); }, v => v + 'px');
+        wireSlider('gf-cursor-alpha', v => { settings.theme.cursor.alpha = v; applyCursor(); save(); }, v => v + '%');
+        qs('#gf-cursor-anim').addEventListener('change', e => { settings.theme.cursor.anim = e.target.checked; save(); });
+
         qs('#gf-reset-theme').addEventListener('click', () => {
             settings.theme = JSON.parse(JSON.stringify(DEFAULTS.theme));
             save(); location.reload();
@@ -1131,6 +1318,9 @@
             save();
             if (settings.gamepage.commentsLoadAll) injectLoadAllBtn();
             else removeLoadAllBtn();
+        });
+        qs('#gf-entersubmit').addEventListener('change', e => {
+            settings.gamepage.enterSubmit = e.target.checked; save();
         });
 
         const feedStatus = qs('#gf-feed-status');
