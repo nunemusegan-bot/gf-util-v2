@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         GF.util
 // @namespace    GF.util
-// @version      0.1.0
+// @version      0.2.0
 // @description  LOL
 // @match        https://gofrag.ru/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
-// @updateURL    https://github.com/pianino2/gf-util/raw/main/script.js
-// @downloadURL  https://github.com/pianino2/gf-util/raw/main/script.js
+// @updateURL    https://github.com/nunemusegan-bot/gf-util-v2/raw/main/script.js
+// @downloadURL  https://github.com/nunemusegan-bot/gf-util-v2/raw/main/script.js
 // @run-at       document-end
 // ==/UserScript==
 
