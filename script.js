@@ -32,6 +32,7 @@
             reset_theme: 'Reset theme',
             tools: 'Tools', random: 'Random gradient', io: 'Export / Import', io_ph: 'Settings JSON', export: 'Export', import: 'Import', reset_all: 'Reset all',
             comments: 'Comments', show_loadall: 'Show "Load all" button', enter_submit: 'Submit on Enter',
+            more_emoji: 'More emoji in the picker', emoji_extra: 'More emoji', emo_face: 'Faces', emo_hand: 'Hands', emo_animal: 'Animals', emo_food: 'Food', emo_thing: 'Things', emo_symbol: 'Symbols',
             feeder: 'Cat feeder', autofeed: 'Auto feed on page load', feednow: 'Feed now',
             devourer: 'Devourer cat',
             changer: 'Cat changer', breed: 'Breed', stage: 'Stage', breed_auto: 'Auto (site default)', stage_auto: 'Auto (current)', reset: 'Reset',
@@ -61,6 +62,7 @@
             reset_theme: 'Сбросить тему',
             tools: 'Инструменты', random: 'Случайный градиент', io: 'Экспорт / Импорт', io_ph: 'JSON настроек', export: 'Экспорт', import: 'Импорт', reset_all: 'Сбросить всё',
             comments: 'Комментарии', show_loadall: 'Кнопка «Загрузить все»', enter_submit: 'Отправка по Enter',
+            more_emoji: 'Больше эмодзи в панели', emoji_extra: 'Ещё эмодзи', emo_face: 'Лица', emo_hand: 'Руки', emo_animal: 'Животные', emo_food: 'Еда', emo_thing: 'Вещи', emo_symbol: 'Символы',
             feeder: 'Кормление кота', autofeed: 'Автокорм при загрузке', feednow: 'Покормить',
             devourer: 'Кот-поглотитель',
             changer: 'Смена кота', breed: 'Порода', stage: 'Стадия', breed_auto: 'Авто (как на сайте)', stage_auto: 'Авто (текущая)', reset: 'Сброс',
@@ -184,7 +186,7 @@
             watermark: true, watermarkUser: true, watermarkTime: false, watermarkFps: false,
             watermarkCorner: 'tl'
         },
-        gamepage: { commentsLoadAll: false, enterSubmit: false },
+        gamepage: { commentsLoadAll: false, enterSubmit: false, moreEmoji: false },
         cat: { autoFeed: false, autoFeedDevourer: false, breed: 'auto', stage: 'auto' },
         theme: {
             tintColor1: '#4296fa', tintColor2: '#3169bd', tintAmount: 0,
@@ -776,6 +778,7 @@
                 </div>
                 <div class="gf-pane" data-pane="gamepage">
                     ${tree('gpcomments', t('comments'), `${checkRow('gf-gp-loadall', t('show_loadall'), settings.gamepage.commentsLoadAll)}${checkRow('gf-entersubmit', t('enter_submit'), settings.gamepage.enterSubmit)}`)}
+                    ${tree('gpemoji', t('emoji_extra'), checkRow('gf-more-emoji', t('more_emoji'), settings.gamepage.moreEmoji))}
                 </div>
                 <div class="gf-pane" data-pane="cat">
                     ${tree('feeder', t('feeder'), `${checkRow('gf-autofeed', t('autofeed'), settings.cat.autoFeed)}<div class="gf-row"><button class="gf-btn" id="gf-feednow">${t('feednow')}</button></div><div class="gf-feed-status" id="gf-feed-status"></div>`)}
@@ -1104,6 +1107,114 @@ function syncWatermark() {
         setTimeout(() => { if (btn.isConnected) btn.remove(); }, 2500);
     }
 
+    const MORE_EMOJI = [
+        { id: 'face', icon: '😀', title: 'emo_face', list: '😀 😃 😄 😁 😆 🤣 🙂 😉 😊 😇 🥰 😘 😗 😚 😙 😋 😛 😜 😝 🤑 🤗 🤭 🤫 🤐 🤨 😐 😑 😶 😒 🤥 😌 😔 😪 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤠 🤓 🧐 😕 😟 🙁 😮 😯 😲 😳 😦 😧 😨 😰 😥 😖 😣 😞 😓 😩 😫 🥱 😤 😠 🤬 😈 👿 💀 💩 🤡 👻 👽 🤖' },
+        { id: 'hand', icon: '👍', title: 'emo_hand', list: '👍 👎 👌 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🤏 👏 🙌 👐 🤲 🤝 🙏 ✍️ 💪 🦾 👀 👁️ 👅 👄 🧠 🦴 🦷' },
+        { id: 'animal', icon: '🐱', title: 'emo_animal', list: '😸 😹 😺 😻 😼 😽 🙀 😿 😾 🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🐛 🦋 🐌 🐞 🐜 🕷️ 🦂 🐢 🐍 🦎 🐙 🦑 🦀 🐠 🐟 🐡 🐬 🐳 🐋 🦈 🐊 🐅 🐆 🦓 🦍 🐘 🦏 🐪 🦒 🐈 🐕 🐾 🦖 🦕 🐉 🦔 🐀 🐁 🐇 🐿️' },
+        { id: 'food', icon: '🍕', title: 'emo_food', list: '🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🥑 🍆 🥔 🥕 🌽 🌶️ 🥒 🥦 🍄 🥜 🍞 🥐 🥖 🥨 🧀 🍖 🍗 🥩 🥓 🍔 🍟 🍕 🌭 🥪 🌮 🌯 🥗 🍝 🍜 🍲 🍣 🍤 🍙 🍚 🍦 🍩 🍪 🎂 🍰 🧁 🍫 🍬 🍭 ☕ 🍵 🥤 🍺 🍻 🥂 🍷 🍸 🍾 🥛 🍼' },
+        { id: 'thing', icon: '🎮', title: 'emo_thing', list: '⚽ 🏀 🏈 ⚾ 🎾 🏐 🏉 🎱 🏓 🥊 🎮 🕹️ 🎲 🧩 🎯 🎳 🎰 🎧 🎤 🎸 🎹 🥁 🎬 📷 📱 💻 🖥️ ⌨️ 🖱️ 💾 💿 📀 🔋 🔌 💡 🔦 🔧 🔨 ⚙️ 🔑 🗝️ 🔒 🔓 💰 💎 💸 🎁 🎉 🎊 🎈 🏆 🥇 🥈 🥉 🏅 🚀 ✈️ 🚗 🏎️ 🚓 🚑 🚒 🚜 🛴 🚲 ⏰ ⌛ 📌 📎 📝 📚 ✏️ 🔍 🔔 📢 💣 🔥 ⭐ 🌟 ✨ ⚡ 🌈 ☀️ 🌙 ❄️ ☔ 🌊' },
+        { id: 'symbol', icon: '❤️', title: 'emo_symbol', list: '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💯 💢 💥 💫 💦 💨 💤 ✅ ❌ ❎ ✔️ ➕ ➖ ➗ ✖️ ♾️ ❓ ❔ ❕ ❗ ‼️ ⁉️ ⚠️ 🚫 ⛔ 🔞 ♻️ ⭕ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ ▶️ ⏸️ ⏩ ⏪ 🔼 🔽 ⬆️ ⬇️ ⬅️ ➡️ ↩️ 🔁 🔀 🆗 🆒 🆕 🆓 🔝 ➰ 〰️ ©️ ®️ ™️' }
+    ];
+
+    let lastTextarea = null;
+    document.addEventListener('focusin', e => {
+        if (e.target.tagName === 'TEXTAREA' && !e.target.closest('#gf-menu')) lastTextarea = e.target;
+    }, true);
+
+    function emojiTarget(strip) {
+        const prev = strip.previousElementSibling;
+        const own = prev && prev.querySelector('textarea');
+        if (own) return own;
+        if (lastTextarea && lastTextarea.isConnected) return lastTextarea;
+        return document.getElementById('gf-comment-text');
+    }
+
+    function insertEmoji(field, emoji) {
+        if (!field) return;
+        const max = field.maxLength > 0 ? field.maxLength : Infinity;
+        if (field.value.length + emoji.length > max) return;
+        const start = field.selectionStart == null ? field.value.length : field.selectionStart;
+        const end = field.selectionEnd == null ? start : field.selectionEnd;
+        field.setRangeText(emoji, start, end, 'end');
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        field.focus();
+    }
+
+    function buildMoreEmoji(strip) {
+        const box = document.createElement('div');
+        box.className = 'gf-more';
+        const head = document.createElement('div');
+        head.className = 'gf-more-head';
+        const label = document.createElement('span');
+        label.className = 'gf-more-label';
+        const chips = document.createElement('div');
+        chips.className = 'gf-more-chips';
+        const grid = document.createElement('div');
+        grid.className = 'gf-more-grid';
+        head.append(label, chips);
+        box.append(head, grid);
+
+        const sets = MORE_EMOJI.map(c => ({ ...c, items: c.list.split(/\s+/) }));
+        const total = sets.reduce((n, c) => n + c.items.length, 0);
+        label.textContent = t('emoji_extra').toUpperCase() + ' · ' + total;
+
+        function show(set) {
+            grid.replaceChildren();
+            for (const em of set.items) {
+                const cell = document.createElement('button');
+                cell.type = 'button';
+                cell.className = 'gf-more-cell';
+                cell.textContent = em;
+                grid.appendChild(cell);
+            }
+            chips.querySelectorAll('.gf-more-chip').forEach(c => c.classList.toggle('on', c.dataset.id === set.id));
+        }
+
+        for (const set of sets) {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'gf-more-chip';
+            chip.dataset.id = set.id;
+            chip.textContent = set.icon + ' ' + t(set.title);
+            chip.addEventListener('click', () => show(set));
+            chips.appendChild(chip);
+        }
+
+        grid.addEventListener('click', e => {
+            const cell = e.target.closest('.gf-more-cell');
+            if (cell) insertEmoji(emojiTarget(strip), cell.textContent);
+        });
+
+        show(sets[0]);
+        return box;
+    }
+
+    function injectMoreEmoji() {
+        if (!settings.gamepage.moreEmoji) return;
+        document.querySelectorAll('.gf-emo-strip').forEach(strip => {
+            if (!strip.querySelector(':scope > .gf-more')) strip.appendChild(buildMoreEmoji(strip));
+        });
+    }
+
+    function syncMoreEmoji() {
+        if (settings.gamepage.moreEmoji) injectMoreEmoji();
+        else document.querySelectorAll('.gf-more').forEach(b => b.remove());
+    }
+
+    GM_addStyle(`
+        .gf-more { margin-top: 6px; padding-top: 12px; border-top: 1px dashed rgba(255,255,255,.1); }
+        .gf-more-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
+        .gf-more-label { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: #8b8b95; white-space: nowrap; }
+        .gf-more-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .gf-more-chip { padding: 4px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: #a1a1aa; font-family: inherit; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+        .gf-more-chip:hover { color: #e4e4e7; }
+        .gf-more-chip.on { color: #40ed70; border-color: rgba(64,237,112,.45); background: rgba(64,237,112,.1); }
+        .gf-more-grid { display: grid; grid-template-columns: repeat(10, 1fr); max-height: 230px; overflow-y: auto; }
+        .gf-more-cell { padding: 8px 0; border: 0; border-radius: 8px; background: transparent; font-size: 20px; line-height: 1; cursor: pointer; }
+        .gf-more-cell:hover { background: rgba(255,255,255,.08); }
+        @media (max-width: 640px) { .gf-more-grid { grid-template-columns: repeat(7, 1fr); } }
+    `);
+
     function initLoadAllComments() {
         if (settings.gamepage.commentsLoadAll) injectLoadAllBtn();
         else removeLoadAllBtn();
@@ -1112,6 +1223,7 @@ function syncWatermark() {
                 injectLoadAllBtn();
                 applyEggBadges();
                 injectSidebarButton();
+                injectMoreEmoji();
             });
             loadAllObserver.observe(document.body, { childList: true, subtree: true });
         }
@@ -1128,6 +1240,7 @@ function syncWatermark() {
         initLoadAllComments();
         applyEggBadges();
         syncSidebarButton();
+        syncMoreEmoji();
 
         function clampToViewport() {
             const w = menu.offsetWidth, h = menu.offsetHeight;
@@ -1328,6 +1441,11 @@ function syncWatermark() {
         });
         qs('#gf-entersubmit').addEventListener('change', e => {
             settings.gamepage.enterSubmit = e.target.checked; save();
+        });
+
+        qs('#gf-more-emoji').addEventListener('change', e => {
+            settings.gamepage.moreEmoji = e.target.checked; save();
+            syncMoreEmoji();
         });
 
         const feedStatus = qs('#gf-feed-status');
