@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         GF.util
-// @namespace    GF.util
+// @name         GF.util V2
+// @namespace    GF.util V2
 // @version      0.2.0
 // @description  LOL
 // @match        https://gofrag.ru/*
