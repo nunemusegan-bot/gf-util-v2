@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GF.util V2
 // @namespace    GF.util V2
-// @version      0.2.0
+// @version      0.3.0
 // @description  LOL
 // @match        https://gofrag.ru/*
 // @grant        GM_setValue
@@ -728,7 +728,7 @@
                     <div class="gf-home-toprow">
                         <div>
                             <div class="gf-home-hello">${t('welcome')} <b>${getCurrentUsername()}</b></div>
-                            <div class="gf-home-ver">gf.util v0.2.0</div>
+                            <div class="gf-home-ver">gf.util v0.3.0</div>
                         </div>
                         <div class="gf-lang-switch">
                             <button type="button" class="gf-lang-btn gf-flag-ru${settings.general.lang === 'ru' ? ' active' : ''}" data-lang="ru" title="Русский"></button>
