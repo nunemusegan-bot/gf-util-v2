@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         GF.util V2
 // @namespace    GF.util V2
-// @version      0.5.0
+// @version      0.3.1
 // @description  LOL
 // @match        https://gofrag.ru/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
-// @updateURL    https://github.com/nunemusegan-bot/gf-util-v2/raw/main/script.js
-// @downloadURL  https://github.com/nunemusegan-bot/gf-util-v2/raw/main/script.js
+// @updateURL    https://raw.githubusercontent.com/nunemusegan-bot/gf-util-v2/main/script.js
+// @downloadURL  https://raw.githubusercontent.com/nunemusegan-bot/gf-util-v2/main/script.js
 // @run-at       document-end
 // ==/UserScript==
 
@@ -1108,7 +1108,7 @@ function syncWatermark() {
     }
 
     const MORE_EMOJI = [
-        { id: 'face', icon: '😀', title: 'emo_face', list: '😀 😃 😄 😁 😆 🤣 🙂 😉 😊 😇 🥰 😘 😗 😚 😙 😋 😛 😜 😝 🤑 🤗 🤭 🤫 🤐 🤨 😐 😑 😶 😒 🤥 😌 😔 😪 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤠 🤓 🧐 😕 😟 🙁 😮 😯 😲 😳 😦 😧 😨 😰 😥 😖 😣 😞 😓 😩 😫 🥱 😤 😠 🤬 😈 👿 💀 💩 🤡 👻 👽 🤖' },
+        { id: 'face', icon: '😀', title: 'emo_face', list: '😀 😃 🫪 😄 😁 😆 🤣 🙂 😉 😊 😇 🥰 😘 😗 😚 😙 😋 😛 😜 😝 🤑 🤗 🤭 🤫 🤐 🤨 😐 😑 😶 😒 🤥 😌 😔 😪 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤠 🤓 🧐 😕 😟 🙁 😮 😯 😲 😳 😦 😧 😨 😰 😥 😖 😣 😞 😓 😩 😫 🥱 😤 😠 🤬 😈 👿 💀 💩 🤡 👻 👽 🤖' },
         { id: 'hand', icon: '👍', title: 'emo_hand', list: '👍 👎 👌 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🤏 👏 🙌 👐 🤲 🤝 🙏 ✍️ 💪 🦾 👀 👁️ 👅 👄 🧠 🦴 🦷' },
         { id: 'animal', icon: '🐱', title: 'emo_animal', list: '😸 😹 😺 😻 😼 😽 🙀 😿 😾 🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🐛 🦋 🐌 🐞 🐜 🕷️ 🦂 🐢 🐍 🦎 🐙 🦑 🦀 🐠 🐟 🐡 🐬 🐳 🐋 🦈 🐊 🐅 🐆 🦓 🦍 🐘 🦏 🐪 🦒 🐈 🐕 🐾 🦖 🦕 🐉 🦔 🐀 🐁 🐇 🐿️' },
         { id: 'food', icon: '🍕', title: 'emo_food', list: '🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🥑 🍆 🥔 🥕 🌽 🌶️ 🥒 🥦 🍄 🥜 🍞 🥐 🥖 🥨 🧀 🍖 🍗 🥩 🥓 🍔 🍟 🍕 🌭 🥪 🌮 🌯 🥗 🍝 🍜 🍲 🍣 🍤 🍙 🍚 🍦 🍩 🍪 🎂 🍰 🧁 🍫 🍬 🍭 ☕ 🍵 🥤 🍺 🍻 🥂 🍷 🍸 🍾 🥛 🍼' },
