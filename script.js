@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GF.util V2
 // @namespace    GF.util V2
-// @version      0.3.0
+// @version      0.4.0
 // @description  LOL
 // @match        https://gofrag.ru/*
 // @grant        GM_setValue
