@@ -934,7 +934,6 @@ function syncWatermark() {
     else wmFpsStop();
     if (wmEl) { wmApplyCorner(); wmBuild(); }
 }
-    }
 
     function getCsrfToken() {
         try {
