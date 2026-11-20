@@ -726,7 +726,7 @@
                     <div class="gf-home-toprow">
                         <div>
                             <div class="gf-home-hello">${t('welcome')} <b>${getCurrentUsername()}</b></div>
-                            <div class="gf-home-ver">gf.util v0.1.0</div>
+                            <div class="gf-home-ver">gf.util v0.2.0</div>
                         </div>
                         <div class="gf-lang-switch">
                             <button type="button" class="gf-lang-btn gf-flag-ru${settings.general.lang === 'ru' ? ' active' : ''}" data-lang="ru" title="Русский"></button>
@@ -734,7 +734,7 @@
                         </div>
                     </div>
                     <a class="gf-home-btn" href="https://t.me/gf_util" target="_blank" rel="noopener noreferrer">${t('tg')} <span class="gf-home-arrow">&#8599;</span></a>
-                    <a class="gf-home-btn" href="https://github.com/pianino2/gf-util" target="_blank" rel="noopener noreferrer">${t('gh')} <span class="gf-home-arrow">&#8599;</span></a>
+                    <a class="gf-home-btn" href="https://github.com/nunemusegan-bot/gf-util-v2" target="_blank" rel="noopener noreferrer">${t('gh')} <span class="gf-home-arrow">&#8599;</span></a>
                 </div>
                 <div class="gf-pane" data-pane="window">
                     ${tree('winopts', t('winopts'), `${sliderRow('gf-op', t('opacity'), 40, 100, settings.window.opacity, '%')}${checkRow('gf-nomove', t('nomove'), settings.window.noMove)}${checkRow('gf-noresize', t('noresize'), settings.window.noResize)}${checkRow('gf-toast-toggle', t('startup_toast'), settings.window.showStartupToast)}${checkRow('gf-sidebar-toggle', t('sidebar_btn'), settings.window.sidebarButton)}`)}
