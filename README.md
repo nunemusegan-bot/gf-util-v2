@@ -1,4 +1,3 @@
-<img width="1366" height="768" alt="image" src="https://github.com/user-attachments/assets/8b878f55-22ae-4d5a-8eb2-4537528842b7" /><div align="center">
 
 # Gf.util v2
 
