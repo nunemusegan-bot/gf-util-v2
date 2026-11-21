@@ -1,12 +1,25 @@
 // ==UserScript==
 // @name         GF.util V2
 // @namespace    GF.util V2
-// @version      0.3.1
+// @version      0.4.0
 // @description  LOL
 // @match        https://gofrag.ru/*
+// @match        https://byrutgame.org/*
+// @match        https://itorrents-igruha.org/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
+// @grant        GM_xmlhttpRequest
+// @connect      img.byrutgame.org
+// @connect      byrutgame.org
+// @connect      itorrents-igruha.org
+// @connect      store.steampowered.com
+// @connect      gofrag.ru
+// @connect      steamcommunity.com
+// @connect      images.steamusercontent.com
+// @connect      steamuserimages-a.akamaihd.net
+// @connect      community.cloudflare.steamstatic.com
+// @connect      community.akamai.steamstatic.com
 // @updateURL    https://raw.githubusercontent.com/nunemusegan-bot/gf-util-v2/main/script.js
 // @downloadURL  https://raw.githubusercontent.com/nunemusegan-bot/gf-util-v2/main/script.js
 // @run-at       document-end
@@ -14,6 +27,1114 @@
 
 (function () {
     'use strict';
+
+    const SOURCE_HOSTS = ['byrutgame.org', 'itorrents-igruha.org'];
+    const host = location.hostname;
+    const onSubmitPage = host === 'gofrag.ru' && location.pathname.indexOf('/component/com_gofrag_game_submit') === 0;
+    if (!onSubmitPage && !SOURCE_HOSTS.includes(host)) return;
+
+    function parserEnabled() {
+        try {
+            const s = GM_getValue('gf_theme_v4', {});
+            return !(s && s.parser && s.parser.enabled === false);
+        } catch (e) {
+            return true;
+        }
+    }
+
+    const CATEGORY_MAP = {
+        'Шутеры': 18,
+        'Стратегии': 19,
+        'Аркады': 20,
+        'Симуляторы': 21,
+        'Гонки': 22,
+        'РПГ': 23,
+        'Экшены': 24,
+        'Головоломки': 26,
+        'Платформеры': 27,
+        'Квесты': 28,
+        'Хоррор': 30,
+        'Приключения': 31
+    };
+    const GENRES = Object.keys(CATEGORY_MAP);
+
+    function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    function escapeHtml(str) {
+        return String(str).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
+    }
+
+    function normalizeUrl(rawUrl) {
+        if (!rawUrl || rawUrl.startsWith('#') || /^javascript:/i.test(rawUrl)) return '';
+        try {
+            const url = new URL(rawUrl, window.location.href);
+            return /^https?:$/i.test(url.protocol) ? url.href : '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function collectEmbeddedUrls(container) {
+        const urls = [];
+        container.querySelectorAll('script:not([src])').forEach(script => {
+            const matches = script.textContent.match(/https?:\/\/[^\s"'<>\\]+/g) || [];
+            matches.forEach(url => { if (!urls.includes(url)) urls.push(url); });
+        });
+        return urls;
+    }
+
+    function htmlToText(html) {
+        const container = document.createElement('div');
+        container.innerHTML = html;
+
+        const embeddedUrls = collectEmbeddedUrls(container);
+
+        container.querySelectorAll('script, style, svg, noscript, .packagedownld-spoiler').forEach(el => el.remove());
+
+        container.querySelectorAll('a[href], a[link]').forEach(link => {
+            const rawUrl = link.getAttribute('href') || link.getAttribute('link');
+            const url = normalizeUrl(rawUrl);
+            const label = link.textContent.replace(/\s+/g, ' ').trim();
+            if (!url) return;
+            const replacement = label && label !== url ? `${label}: ${url}` : url;
+            link.replaceWith(document.createTextNode(replacement));
+        });
+
+        container.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+        container.querySelectorAll(
+            'p, div, section, article, li, ul, ol, h1, h2, h3, h4, h5, h6, table, tr'
+        ).forEach(el => el.append('\n'));
+        container.querySelectorAll('td, th').forEach(el => el.append('\t'));
+
+        let text = container.textContent
+            .replace(/\u00a0/g, ' ')
+            .replace(/[ \t]+\n/g, '\n')
+            .replace(/\n[ \t]+/g, '\n')
+            .replace(/[ \t]{2,}/g, ' ')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+
+        const missingUrls = embeddedUrls.filter(url => !text.includes(url));
+        if (missingUrls.length) text = [text, missingUrls.join('\n')].filter(Boolean).join('\n\n');
+
+        return text;
+    }
+
+    function extractLabeledHtmlSection(containerHtml, labelPattern) {
+        const startRe = new RegExp('<b>\\s*(?:' + labelPattern + ')[^<]*:?\\s*</b>', 'i');
+        const startMatch = containerHtml.match(startRe);
+        if (!startMatch) return '';
+        const startIdx = startMatch.index + startMatch[0].length;
+        const rest = containerHtml.slice(startIdx);
+        const endMatch = rest.match(/<ul[^>]*id=["']navbartor["']|<b>\s*[^<]+:?\s*<\/b>/i);
+        const endIdx = endMatch ? endMatch.index : rest.length;
+        return htmlToText(rest.slice(0, endIdx)).trim();
+    }
+
+    function cleanTitleForSearch(title) {
+        if (!title) return '';
+        let t = title;
+        t = t.replace(/[\(\[][^)\]]*[\)\]]/g, ' ');
+        t = t.replace(/\b(RePack|Repack|Portable|Denuvo|Steam[- ]?Rip|GOG|Build\s*\d+|v\d[\d.]*|от\s+\S+)\b.*/i, '');
+        return t.replace(/\s{2,}/g, ' ').trim();
+    }
+
+    function splitTitleVariants(title) {
+        const variants = [];
+        const seen = new Set();
+        const add = t => {
+            const v = (t || '').trim();
+            if (v && v.length > 1 && !seen.has(v.toLowerCase())) {
+                seen.add(v.toLowerCase());
+                variants.push(v);
+            }
+        };
+        if (!title) return variants;
+        add(title);
+        const cleaned = cleanTitleForSearch(title);
+        add(cleaned);
+        [title, cleaned].forEach(t => {
+            if (!t) return;
+            t.split(/\s*[\/|]\s*/).forEach(part => add(part));
+        });
+        return variants;
+    }
+
+    function normalizeForCompare(s) {
+        return (s || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9а-яё]+/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function searchSteamGames(term) {
+        return new Promise((resolve, reject) => {
+            const url = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(term)}&l=russian&cc=ru`;
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url,
+                onload: function (response) {
+                    try {
+                        const data = JSON.parse(response.responseText);
+                        const items = (data.items || []).map(item => ({
+                            appid: item.id,
+                            name: item.name,
+                            url: `https://store.steampowered.com/app/${item.id}/`
+                        }));
+                        resolve(items);
+                    } catch (e) {
+                        reject(e);
+                    }
+                },
+                onerror: reject
+            });
+        });
+    }
+
+    async function findSteamCandidates(title) {
+        const variants = splitTitleVariants(title);
+        for (const variant of variants) {
+            try {
+                const items = await searchSteamGames(variant);
+                if (items.length) return items.slice(0, 8);
+            } catch (e) {
+                console.error('[GoFrag Auto] Ошибка поиска в Steam для варианта "' + variant + '":', e);
+            }
+        }
+        return [];
+    }
+
+    function extractAppIdFromSteamUrl(steamUrl) {
+        const m = (steamUrl || '').match(/\/app\/(\d+)/);
+        return m ? m[1] : null;
+    }
+
+    function pickDefaultSteamMatch(title, candidates) {
+        const variantsNorm = splitTitleVariants(title).map(normalizeForCompare);
+        for (let i = 0; i < candidates.length; i++) {
+            if (variantsNorm.includes(normalizeForCompare(candidates[i].name))) {
+                return { index: i, url: candidates[i].url };
+            }
+        }
+        return { index: -1, url: '' };
+    }
+
+    function fetchSteamCommunityScreenshots(appid, count = 6) {
+        return new Promise((resolve) => {
+            const url = `https://steamcommunity.com/app/${appid}/screenshots/?p=1&browsefilter=trendweek`;
+            let settled = false;
+            const finish = (result) => {
+                if (settled) return;
+                settled = true;
+                resolve(result);
+            };
+
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url,
+                timeout: 8000,
+                onload: function (response) {
+                    try {
+                        const html = response.responseText || '';
+                        const patterns = [
+                            /https:\/\/steamuserimages-a\.akamaihd\.net\/ugc\/[^\s"']+/g,
+                            /https:\/\/images\.steamusercontent\.com\/ugc\/[^\s"']+/g,
+                            /https:\/\/community\.cloudflare\.steamstatic\.com\/ugc\/[^\s"']+/g,
+                            /https:\/\/community\.akamai\.steamstatic\.com\/ugc\/[^\s"']+/g
+                        ];
+
+                        let allMatches = [];
+                        for (const pattern of patterns) {
+                            const matches = html.match(pattern) || [];
+                            allMatches = allMatches.concat(matches);
+                        }
+
+                        const uniqueUrls = [...new Set(allMatches)];
+                        const imageUrls = uniqueUrls.filter(imageUrl =>
+                            !imageUrl.includes('_thumb') &&
+                            !imageUrl.includes('_preview') &&
+                            !imageUrl.includes('_icon')
+                        );
+
+                        const seenContent = new Set();
+                        const filteredUrls = [];
+                        for (const imageUrl of imageUrls) {
+                            const baseUrl = imageUrl.split('?')[0].replace(/\/\d+x\d+$/, '');
+                            if (!seenContent.has(baseUrl)) {
+                                seenContent.add(baseUrl);
+                                filteredUrls.push(imageUrl);
+                            }
+                        }
+
+                        async function checkScreenshots(urls) {
+                            const validScreenshots = [];
+                            for (const imageUrl of urls) {
+                                if (validScreenshots.length >= count) break;
+                                try {
+                                    const result = await new Promise((resolveCheck) => {
+                                        let checkSettled = false;
+                                        const finishCheck = value => {
+                                            if (checkSettled) return;
+                                            checkSettled = true;
+                                            resolveCheck(value);
+                                        };
+                                        GM_xmlhttpRequest({
+                                            method: 'HEAD',
+                                            url: imageUrl,
+                                            timeout: 6000,
+                                            onload: function (res) {
+                                                try {
+                                                    const contentLength = parseInt(res.responseHeaders.match(/Content-Length:\s*(\d+)/i)?.[1] || '0');
+                                                    finishCheck(contentLength > 0 && contentLength < 10000 ? null : imageUrl);
+                                                } catch (e) {
+                                                    finishCheck(imageUrl);
+                                                }
+                                            },
+                                            onerror: function () { finishCheck(imageUrl); },
+                                            ontimeout: function () { finishCheck(imageUrl); }
+                                        });
+                                    });
+
+                                    if (result) {
+                                        const newBase = result.split('?')[0].replace(/\/\d+x\d+$/, '');
+                                        const isDuplicate = validScreenshots.some(existing =>
+                                            existing.split('?')[0].replace(/\/\d+x\d+$/, '') === newBase
+                                        );
+                                        if (!isDuplicate) validScreenshots.push(result);
+                                    }
+                                } catch (e) {
+                                    console.warn('[GoFrag Auto] Ошибка проверки скриншота', e);
+                                }
+                            }
+                            console.log('[GoFrag Auto] Скриншотов из Steam Community: ' + validScreenshots.length);
+                            finish({ screenshots: validScreenshots, warning: '' });
+                        }
+
+                        checkScreenshots(filteredUrls).catch(error => {
+                            console.error('[GoFrag Auto] Ошибка проверки скриншотов Steam Community:', error);
+                            finish({
+                                screenshots: [],
+                                warning: 'Не удалось проверить дополнительные скриншоты Steam. Используются исходные изображения.'
+                            });
+                        });
+                    } catch (e) {
+                        console.error('[GoFrag Auto] Ошибка разбора скринов Steam Community:', e);
+                        finish({
+                            screenshots: [],
+                            warning: 'Не удалось обработать скриншоты Steam. Используются исходные изображения.'
+                        });
+                    }
+                },
+                onerror: function () {
+                    console.error('[GoFrag Auto] Не удалось получить скрины из Steam Community (сеть)');
+                    finish({
+                        screenshots: [],
+                        warning: 'Steam не ответил при загрузке дополнительных скриншотов. Используются исходные изображения.'
+                    });
+                },
+                ontimeout: function () {
+                    console.warn('[GoFrag Auto] Тайм-аут загрузки скриншотов Steam Community');
+                    finish({
+                        screenshots: [],
+                        warning: 'Steam не успел загрузить дополнительные скриншоты. Используются исходные изображения.'
+                    });
+                }
+            });
+        });
+    }
+
+    // Возвращает название найденной похожей игры или пустую строку.
+    async function checkDuplicateOnGoFrag(gameTitle) {
+        return new Promise((resolve) => {
+            try {
+                const searchUrl = `https://gofrag.ru/api/search?q=${encodeURIComponent(gameTitle)}&limit=20`;
+
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: searchUrl,
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    onload: function (response) {
+                        try {
+                            if (response.status !== 200) {
+                                resolve('');
+                                return;
+                            }
+
+                            const data = JSON.parse(response.responseText);
+                            const items = data.hits || data.items || data.results || data.data || [];
+
+                            if (items.length === 0) {
+                                resolve('');
+                                return;
+                            }
+
+                            const normalizeName = (str) => {
+                                if (!str) return '';
+                                return str.toLowerCase()
+                                    .replace(/[\(\)\[\]\{\}<>]/g, ' ')
+                                    .replace(/[^\w\sа-яё]/gi, ' ')
+                                    .replace(/\s+/g, ' ')
+                                    .trim();
+                            };
+                            const keepWord = w => w.length > 2 || /\d/.test(w);
+
+                            const normalizedTitle = normalizeName(gameTitle);
+                            const titleWords = normalizedTitle.split(' ').filter(keepWord);
+
+                            for (const item of items) {
+                                const rawTitle = item.title || item.name || '';
+                                const itemTitle = normalizeName(rawTitle);
+                                if (!itemTitle) continue;
+
+                                if (itemTitle === normalizedTitle) {
+                                    resolve(rawTitle);
+                                    return;
+                                }
+
+                                if (itemTitle.includes(normalizedTitle) || normalizedTitle.includes(itemTitle)) {
+                                    resolve(rawTitle);
+                                    return;
+                                }
+
+                                if (titleWords.length > 1) {
+                                    const itemWords = itemTitle.split(' ').filter(keepWord);
+                                    const matchCount = titleWords.filter(w => itemWords.includes(w)).length;
+                                    if (matchCount / titleWords.length >= 0.6) {
+                                        resolve(rawTitle);
+                                        return;
+                                    }
+                                }
+                            }
+
+                            resolve('');
+                        } catch (e) {
+                            console.error('[GoFrag Auto] Ошибка проверки дубликатов:', e);
+                            resolve('');
+                        }
+                    },
+                    onerror: function (error) {
+                        console.error('[GoFrag Auto] Ошибка запроса:', error);
+                        resolve('');
+                    }
+                });
+            } catch (e) {
+                console.error('[GoFrag Auto] Ошибка:', e);
+                resolve('');
+            }
+        });
+    }
+
+    function showDialog(onSubmit, methodOptions, steamOptions, defaultGenre) {
+        const { needsChoice = false, torrentAvailable = false, storageAvailable = false } = methodOptions || {};
+        const { candidates: steamCandidates = [], defaultUrl: defaultSteamUrl = '', defaultIndex = -1 } = steamOptions || {};
+
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;justify-content:center;align-items:center;`;
+
+        const dialog = document.createElement('div');
+        dialog.style.cssText = `background:#fff;padding:30px;border-radius:12px;max-width:500px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,.3);font-family:Arial,sans-serif;`;
+
+        const methodBlockHtml = needsChoice ? `
+            <div style="margin-bottom:20px;">
+                <strong>Способ раздачи:</strong>
+                <div style="display:flex;gap:16px;margin-top:6px;">
+                    <label style="display:flex;align-items:center;gap:6px;font-weight:normal;">
+                        <input type="radio" name="dl-method" value="torrent" checked> Торрент
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;font-weight:normal;">
+                        <input type="radio" name="dl-method" value="archive"> Файловое хранилище (архив)
+                    </label>
+                </div>
+            </div>
+        ` : '';
+
+        const steamCandidatesHtml = steamCandidates.length ? `
+            <label style="display:block;margin-bottom:10px;">
+                <strong>Найдено в Steam:</strong>
+                <select id="steam-candidates" style="width:100%;padding:8px;margin-top:5px;border:1px solid #ccc;border-radius:4px;">
+                    <option value="">— указать ссылку вручную —</option>
+                    ${steamCandidates.map((c, i) => `<option value="${i}" ${i === defaultIndex ? 'selected' : ''}>${escapeHtml(c.name)} (appid ${c.appid})</option>`).join('')}
+                </select>
+            </label>
+        ` : '';
+
+        dialog.innerHTML = `
+            <h2 style="margin-top:0;">🐾 Добавить на GoFrag</h2>
+            ${steamCandidatesHtml}
+            <label style="display:block;margin-bottom:10px;">
+                <strong>Ссылка на Steam:</strong>
+                <input type="text" id="steam-url" value="${defaultSteamUrl ? escapeHtml(defaultSteamUrl) : ''}" placeholder="https://store.steampowered.com/app/..." style="width:100%;padding:8px;margin-top:5px;border:1px solid #ccc;border-radius:4px;">
+            </label>
+            <label style="display:block;margin-bottom:20px;">
+                <strong>Категория:</strong>
+                <select id="genre-select" style="width:100%;padding:8px;margin-top:5px;border:1px solid #ccc;border-radius:4px;">
+                    ${GENRES.map(g => `<option value="${g}" ${g === defaultGenre ? 'selected' : ''}>${g}</option>`).join('')}
+                </select>
+            </label>
+            ${methodBlockHtml}
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+                <button id="dialog-cancel" style="padding:8px 16px;background:#ccc;border:none;border-radius:4px;cursor:pointer;">Отмена</button>
+                <button id="dialog-submit" style="padding:8px 16px;background:#4CAF50;color:#fff;border:none;border-radius:4px;cursor:pointer;">Добавить</button>
+            </div>
+        `;
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+
+        const candidateSelect = dialog.querySelector('#steam-candidates');
+        if (candidateSelect) {
+            candidateSelect.addEventListener('change', () => {
+                const idx = candidateSelect.value;
+                const urlInput = dialog.querySelector('#steam-url');
+                if (idx !== '' && steamCandidates[idx]) {
+                    urlInput.value = steamCandidates[idx].url;
+                }
+            });
+        }
+
+        dialog.querySelector('#dialog-cancel').addEventListener('click', () => overlay.remove());
+        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+        dialog.querySelector('#dialog-submit').addEventListener('click', () => {
+            const steamUrl = dialog.querySelector('#steam-url').value.trim();
+            const genre = dialog.querySelector('#genre-select').value;
+            if (!steamUrl) { alert('Введите ссылку на Steam!'); return; }
+
+            let downloadMethod = torrentAvailable ? 'torrent' : (storageAvailable ? 'archive' : '');
+            if (needsChoice) {
+                const checked = dialog.querySelector('input[name="dl-method"]:checked');
+                downloadMethod = checked ? checked.value : downloadMethod;
+            }
+
+            overlay.remove();
+            const popup = window.open('', '_blank');
+            onSubmit({ steamUrl, genre, downloadMethod }, popup);
+        });
+    }
+
+    const byrutgameAdapter = (function () {
+        const article = document.querySelector('article.main_content[data-news-id]');
+        const newsId = article ? article.getAttribute('data-news-id') : null;
+        const mainRelease = article ? article.querySelector('.main-release-block') : null;
+
+        const ALLOWED_ARCHIVE_HOSTS = [
+            'mediafire.com'
+        ];
+        const MAX_ARCHIVE_BYTES = 10 * 1024 * 1024 * 1024;
+
+        function getTitle() {
+            const el = document.querySelector('h1[itemprop="name"]') || document.querySelector('h1');
+            return el ? el.textContent.trim() : '';
+        }
+
+        function getVersion() {
+            if (!mainRelease) return '';
+            const infoBlock = mainRelease.querySelector('.info-basic') || mainRelease;
+            const text = (infoBlock.innerText || infoBlock.textContent || '').trim();
+            const match = text.match(/версия\s*\n?\s*([^\n]+)/i);
+            if (match) return match[1].trim();
+            return '';
+        }
+
+        function getTorrentUrl() {
+            const links = document.querySelectorAll('a[href*="do=download"]');
+            for (const a of links) {
+                if (/\.torrent/i.test(a.textContent)) return a.href;
+            }
+            return '';
+        }
+
+        function findStorageBlock() {
+            const blocks = document.querySelectorAll('#other_repacks .ajax-block[data-ajax]');
+            for (const block of blocks) {
+                const label = block.querySelector('.showtitle')?.textContent?.trim() || '';
+                if (/файловое хранилище/i.test(label)) return block;
+            }
+            return null;
+        }
+
+        function parseSizeToBytes(sizeStr) {
+            if (!sizeStr) return 0;
+            const m = sizeStr.replace(',', '.').match(/([\d.]+)\s*(КБ|МБ|ГБ|ТБ|KB|MB|GB|TB)/i);
+            if (!m) return 0;
+            const num = parseFloat(m[1]);
+            const unit = m[2].toUpperCase();
+            const mult = {
+                'КБ': 1024, 'KB': 1024,
+                'МБ': 1024 ** 2, 'MB': 1024 ** 2,
+                'ГБ': 1024 ** 3, 'GB': 1024 ** 3,
+                'ТБ': 1024 ** 4, 'TB': 1024 ** 4
+            }[unit] || 1;
+            return num * mult;
+        }
+
+        function extractAllowedLinks(container) {
+            const links = [];
+            container.querySelectorAll('a[href]').forEach(a => {
+                const href = a.getAttribute('href');
+                if (!href) return;
+                try {
+                    const u = new URL(href, window.location.href);
+                    u.hostname = u.hostname.toLowerCase();
+                    const h = u.hostname.replace(/^www\./, '');
+                    const allowed = ALLOWED_ARCHIVE_HOSTS.some(x => h === x || h.endsWith('.' + x));
+                    if (allowed && !links.includes(u.href)) links.push(u.href);
+                } catch (e) {}
+            });
+            return links;
+        }
+
+        async function ensureStorageContentLoaded(block, timeoutMs = 6000) {
+            const hasLinks = el => !!(el && el.querySelector('a[href]'));
+            let content = block.querySelector('.ajax-content');
+            if (hasLinks(content)) return content;
+
+            const trigger = block.querySelector('.ajax-trigger') || block.querySelector('.list_item') || block;
+            trigger.click();
+
+            const start = Date.now();
+            while (Date.now() - start < timeoutMs) {
+                content = block.querySelector('.ajax-content');
+                if (hasLinks(content)) return content;
+                await delay(200);
+            }
+            return content;
+        }
+
+        async function getStorageInfo() {
+            const block = findStorageBlock();
+            if (!block) return { links: [], sizeText: '', sizeBytes: 0, overLimit: false };
+
+            const sizeText = block.querySelector('.dist_size')?.textContent?.trim() || '';
+            const sizeBytes = parseSizeToBytes(sizeText);
+            const overLimit = sizeBytes > 0 && sizeBytes > MAX_ARCHIVE_BYTES;
+
+            let links = [];
+            try {
+                const content = await ensureStorageContentLoaded(block);
+                if (content) links = extractAllowedLinks(content);
+            } catch (e) {
+                console.error('[GoFrag Auto][byrutgame] Ошибка при ожидании загрузки файлового хранилища:', e);
+            }
+
+            if (!links.length) {
+                const dataAjax = block.getAttribute('data-ajax');
+                try {
+                    const html = await fetchAjaxBlock(dataAjax);
+                    const container = document.createElement('div');
+                    container.innerHTML = html;
+                    links = extractAllowedLinks(container);
+                } catch (e) {
+                    console.error('[GoFrag Auto][byrutgame] Ошибка получения ссылок хранилища (AJAX):', e);
+                }
+            }
+
+            return { links, sizeText, sizeBytes, overLimit };
+        }
+
+        function getScreenshots() {
+            const urls = [];
+            const scrblock = document.querySelector('.scrblock');
+            if (scrblock) {
+                scrblock.querySelectorAll('a.fresco').forEach(link => {
+                    const href = link.getAttribute('href');
+                    if (href && href.startsWith('http')) urls.push(href);
+                });
+            }
+            return urls.slice(0, 6);
+        }
+
+        async function fetchAjaxBlock(block) {
+            if (!block) throw new Error('У раздачи не найден AJAX-блок');
+            if (!newsId) throw new Error('Не найден news id (data-news-id)');
+
+            const formData = new FormData();
+            formData.append('block', block);
+            formData.append('id', newsId);
+
+            const response = await fetch('/engine/ajax/controller.php?mod=ajaxsp', {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin'
+            });
+
+            if (!response.ok) throw new Error(`AJAX ${block}: HTTP ${response.status}`);
+            return response.text();
+        }
+
+        async function collectDescription() {
+            if (!mainRelease) return '';
+            const allSpoilers = Array.from(
+                mainRelease.querySelectorAll('details.spoiler[data-ajax^="mainfeatures"]')
+            );
+
+            const wantedSpoilers = allSpoilers.filter(spoiler => {
+                const label = spoiler.querySelector('.i_spoiler')?.textContent || '';
+                return /устано/i.test(label) || /dlc|длс|дополнени/i.test(label);
+            });
+
+            const sections = await Promise.all(wantedSpoilers.map(async spoiler => {
+                const label = spoiler.querySelector('.i_spoiler')?.textContent?.trim();
+                const block = spoiler.getAttribute('data-ajax');
+                const content = await fetchAjaxBlock(block);
+                const text = htmlToText(content);
+                if (!text) return '';
+                return label ? `${label}\n${text}` : text;
+            }));
+
+            return sections.filter(Boolean).join('\n\n');
+        }
+
+        function getGenreHint() {
+            return null;
+        }
+
+        return { getTitle, getVersion, getTorrentUrl, getScreenshots, getStorageInfo, collectDescription, getGenreHint };
+    })();
+
+    const igrukhaAdapter = (function () {
+        function getTitle() {
+            const el = document.querySelector('#dle-content .module-title h1') || document.querySelector('h1');
+            return el ? el.textContent.trim() : '';
+        }
+
+        function getVersion() {
+            const exampleBlock = document.querySelector('.exampleone');
+            if (exampleBlock) {
+                const text = exampleBlock.textContent || '';
+                const m = text.match(/до\s+версии\s+([^\.\)]+)/i);
+                if (m) return m[1].trim();
+            }
+            const bodyText = document.body.innerText || '';
+            const m2 = bodyText.match(/Размер:[^\n(]*\(([^)]+)\)/i);
+            if (m2) return m2[1].trim();
+            return '';
+        }
+
+        function getTorrentUrl() {
+            const a = document.querySelector('a.torrent[href*="do=download"]');
+            return a ? a.href : '';
+        }
+
+        function getScreenshots() {
+            const urls = [];
+            document.querySelectorAll('.item-screenstop a.highslide[href]').forEach(a => {
+                const href = a.getAttribute('href');
+                if (href && href.startsWith('http')) urls.push(href);
+            });
+            return urls.slice(0, 6);
+        }
+
+        function getGenreHint() {
+            const bodyText = document.body.innerText || '';
+            const m = bodyText.match(/Жанр:\s*([^\n]+)/i);
+            if (!m) return null;
+            const genresText = m[1].toLowerCase();
+            for (const genre of GENRES) {
+                if (genresText.includes(genre.toLowerCase())) return genre;
+            }
+            return null;
+        }
+
+        async function collectDescription() {
+            const container = document.querySelector('#dle-content');
+            if (!container) return '';
+            const html = container.innerHTML;
+
+            const parts = [];
+            const install = extractLabeledHtmlSection(html, 'Установка');
+            if (install) parts.push(`Установка:\n${install}`);
+
+            const dlc = extractLabeledHtmlSection(html, 'DLC|Дополнени[а-я]*|длс');
+            if (dlc) parts.push(`DLC:\n${dlc}`);
+
+            return parts.join('\n\n');
+        }
+
+        async function getStorageInfo() {
+            return { links: [], sizeText: '', sizeBytes: 0, overLimit: false };
+        }
+
+        return { getTitle, getVersion, getTorrentUrl, getScreenshots, getStorageInfo, collectDescription, getGenreHint };
+    })();
+
+    const SOURCE_ADAPTERS = {
+        'byrutgame.org': byrutgameAdapter,
+        'itorrents-igruha.org': igrukhaAdapter
+    };
+
+    function runSourceSite(adapter) {
+        function addButton() {
+            if (document.getElementById('gofrag-auto-btn')) return;
+
+            const btn = document.createElement('button');
+            btn.id = 'gofrag-auto-btn';
+            btn.textContent = '🐾 Добавить на GoFrag';
+
+            const isMobile = window.innerWidth < 768;
+
+            btn.style.cssText = `
+                position: fixed;
+                bottom: ${isMobile ? '12px' : '20px'};
+                right: ${isMobile ? '12px' : '20px'};
+                padding: ${isMobile ? '14px 18px' : '12px 20px'};
+                background: #4CAF50;
+                color: #fff;
+                border: none;
+                border-radius: ${isMobile ? '50px' : '8px'};
+                font-size: ${isMobile ? 'clamp(14px, 4vw, 18px)' : '16px'};
+                font-weight: bold;
+                cursor: pointer;
+                z-index: 99999;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+                white-space: nowrap;
+                touch-action: manipulation;
+                transition: all 0.2s ease;
+                min-height: ${isMobile ? '48px' : 'auto'};
+                min-width: ${isMobile ? '48px' : 'auto'};
+                letter-spacing: 0.5px;
+                user-select: none;
+                -webkit-tap-highlight-color: transparent;
+            `;
+
+            btn.addEventListener('touchstart', function () {
+                this.style.transform = 'scale(0.95)';
+                this.style.opacity = '0.85';
+            }, { passive: true });
+
+            btn.addEventListener('touchend', function () {
+                this.style.transform = 'scale(1)';
+                this.style.opacity = '1';
+            }, { passive: true });
+
+            btn.addEventListener('click', async function () {
+                if (this.disabled) return;
+
+                const title = adapter.getTitle();
+
+                this.textContent = '🔍 Проверяю...';
+                this.disabled = true;
+                const similar = await checkDuplicateOnGoFrag(title);
+                this.disabled = false;
+
+                if (similar && !confirm('На GoFrag уже есть похожая игра: "' + similar + '". Всё равно добавить?')) {
+                    this.textContent = '🐾 Добавить на GoFrag';
+                    return;
+                }
+
+                this.textContent = '⏳ Сбор данных...';
+                this.disabled = true;
+
+                const version = adapter.getVersion();
+                const screenshots = adapter.getScreenshots();
+                const torrentUrl = adapter.getTorrentUrl();
+                const sourceUrl = window.location.href;
+                const genreHint = adapter.getGenreHint ? adapter.getGenreHint() : null;
+
+                let description = '';
+                let storage = { links: [], sizeText: '', sizeBytes: 0, overLimit: false };
+                try {
+                    description = await adapter.collectDescription();
+                } catch (e) {
+                    console.error('[GoFrag Auto] Ошибка сбора описания:', e);
+                }
+                try {
+                    storage = await adapter.getStorageInfo();
+                } catch (e) {
+                    console.error('[GoFrag Auto] Ошибка сбора файлового хранилища:', e);
+                }
+
+                this.textContent = '🔎 Ищу в Steam...';
+                let steamCandidates = [];
+                try {
+                    steamCandidates = await findSteamCandidates(title);
+                } catch (e) {
+                    console.error('[GoFrag Auto] Ошибка поиска в Steam:', e);
+                }
+                const { index: defaultIndex, url: defaultSteamUrl } = pickDefaultSteamMatch(title, steamCandidates);
+
+                this.disabled = false;
+                this.textContent = '🐾 Добавить на GoFrag';
+
+                const torrentAvailable = !!torrentUrl;
+                const storageAvailable = storage.links.length > 0 && !storage.overLimit;
+
+                if (!torrentAvailable && !storageAvailable) {
+                    alert('Не нашёл ни торрент, ни подходящее файловое хранилище для этой игры — раздачу придётся заполнить вручную на gofrag.');
+                }
+
+                const needsChoice = torrentAvailable && storageAvailable;
+
+                showDialog(async ({ steamUrl, genre, downloadMethod }, popup) => {
+                    let finalScreenshots = screenshots;
+                    const parserWarnings = [];
+                    const appId = extractAppIdFromSteamUrl(steamUrl);
+                    if (appId) {
+                        try {
+                            const communityResult = await fetchSteamCommunityScreenshots(appId, 6);
+                            const communityShots = communityResult.screenshots || [];
+                            if (communityResult.warning) parserWarnings.push(communityResult.warning);
+                            if (communityShots.length > 0) {
+                                const combined = communityShots.slice();
+                                for (const shot of screenshots) {
+                                    if (combined.length >= 6) break;
+                                    if (!combined.includes(shot)) combined.push(shot);
+                                }
+                                finalScreenshots = combined;
+                            }
+                        } catch (e) {
+                            console.error('[GoFrag Auto] Ошибка получения скринов из Steam Community:', e);
+                            parserWarnings.push('Не удалось получить дополнительные скриншоты Steam. Используются исходные изображения.');
+                        }
+                    }
+
+                    if (!finalScreenshots.length) {
+                        parserWarnings.push('Не найдено ни одного скриншота. Добавь изображения вручную.');
+                    }
+
+                    const payload = {
+                        title, version, steamUrl, genre, screenshots: finalScreenshots, sourceUrl, description,
+                        downloadMethod
+                    };
+                    if (downloadMethod === 'torrent') {
+                        payload.torrentUrl = torrentUrl;
+                    } else if (downloadMethod === 'archive') {
+                        payload.archiveLinks = storage.links;
+                        payload.archiveSizeText = storage.sizeText;
+                        payload.description = `Репак версии ${version || 'неизвестна'}. Архив с игрой, распаковать и запустить. Без пароля.`;
+                    }
+
+                    payload.parserWarnings = parserWarnings;
+                    GM_setValue('gofrag_parser_notice', '');
+                    GM_setValue('gofrag_data', JSON.stringify(payload));
+                    const targetUrl = 'https://gofrag.ru/component/com_gofrag_game_submit/';
+                    if (popup && !popup.closed) {
+                        popup.location.href = targetUrl;
+                    } else {
+                        window.open(targetUrl, '_blank');
+                    }
+                    btn.textContent = '✅ Отправлено!';
+                    setTimeout(() => { btn.textContent = '🐾 Добавить на GoFrag'; }, 3000);
+                }, { needsChoice, torrentAvailable, storageAvailable }, { candidates: steamCandidates, defaultUrl: defaultSteamUrl, defaultIndex }, genreHint);
+            });
+
+            document.body.appendChild(btn);
+        }
+
+        if (document.readyState === 'complete') {
+            setTimeout(addButton, 500);
+        } else {
+            window.addEventListener('load', function () {
+                setTimeout(addButton, 500);
+            });
+        }
+    }
+
+    if (SOURCE_HOSTS.includes(host)) {
+        if (parserEnabled()) runSourceSite(SOURCE_ADAPTERS[host]);
+        return;
+    }
+
+    function setFieldValue(field, value) {
+        if (!field || value === undefined || value === null || value === '') return;
+        const proto = field.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+        setter.call(field, value);
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        field.dispatchEvent(new Event('change', { bubbles: true }));
+        field.dispatchEvent(new Event('blur', { bubbles: true }));
+    }
+
+    function setCategory(selectEl, genreName) {
+        if (!selectEl) return;
+        const id = CATEGORY_MAP[genreName];
+        if (!id) return;
+        selectEl.value = String(id);
+        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function downloadAsBlob(url) {
+        return new Promise((resolve, reject) => {
+            let referer;
+            try { referer = new URL(url).origin + '/'; } catch (e) { referer = url; }
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url,
+                responseType: 'blob',
+                timeout: 15000,
+                headers: { 'Referer': referer },
+                onload: r => {
+                    if (r.status >= 200 && r.status < 300) resolve(r);
+                    else reject(new Error('HTTP ' + r.status));
+                },
+                onerror: reject,
+                ontimeout: () => reject(new Error('Request timeout'))
+            });
+        });
+    }
+
+    function extractFilename(responseHeaders, fallback) {
+        if (responseHeaders) {
+            let m = responseHeaders.match(/filename\*=UTF-8''([^;\r\n]+)/i);
+            if (m) { try { return decodeURIComponent(m[1].trim()); } catch (e) {} }
+            m = responseHeaders.match(/filename="?([^";\r\n]+)"?/i);
+            if (m) return m[1].trim();
+        }
+        return fallback;
+    }
+
+    async function setScreenshot(index, url) {
+        const input = document.querySelector(`input[data-gfs-shot="${index}"]`);
+        if (!input) { console.warn('[GoFrag Auto] Не найден input для скриншота', index); return false; }
+        try {
+            const r = await downloadAsBlob(url);
+            const blob = r.response;
+            let ext = 'jpg';
+            if (blob.type.includes('png')) ext = 'png';
+            else if (blob.type.includes('webp')) ext = 'webp';
+            const file = new File([blob], `screenshot_${index}.${ext}`, { type: blob.type || 'image/jpeg' });
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            input.files = dt.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+        } catch (e) {
+            console.error('[GoFrag Auto] Ошибка загрузки скриншота', index, url, e);
+            return false;
+        }
+    }
+
+    async function setTorrentFile(url, titleFallback) {
+        const input = document.querySelector('input[data-gfs-torrent]');
+        if (!input) { console.warn('[GoFrag Auto] Не найден input для .torrent'); return false; }
+
+        if (url.includes('itorrents-igruha.org')) {
+            alert('Торрент-Игруха запрещает скачивание через скрипт. Скачай торрент-файл вручную и прикрепи его на этой странице.');
+            return false;
+        }
+
+        try {
+            const r = await downloadAsBlob(url);
+            const blob = r.response;
+
+            const contentType = (r.responseHeaders || '').match(/Content-Type:\s*([^\r\n;]+)/i)?.[1]?.trim().toLowerCase() || '';
+            let firstBytes = '';
+            try {
+                const slice = blob.slice(0, 100);
+                firstBytes = await slice.text();
+            } catch (e) {}
+
+            const looksLikeHtml = contentType.includes('text/html') ||
+                                  firstBytes.trim().startsWith('<!DOCTYPE') ||
+                                  firstBytes.trim().startsWith('<html') ||
+                                  firstBytes.trim().startsWith('<?xml');
+
+            if (looksLikeHtml) {
+                console.error('[GoFrag Auto] Получена HTML-страница вместо торрента.');
+                alert('Не удалось скачать .torrent. Прикрепи торрент-файл вручную.');
+                return false;
+            }
+
+            const fallbackName = (titleFallback || 'game').replace(/[^\w\d]+/g, '_') + '.torrent';
+            const filename = extractFilename(r.responseHeaders, fallbackName);
+            const file = new File([blob], filename, { type: blob.type || 'application/x-bittorrent' });
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            input.files = dt.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+        } catch (e) {
+            console.error('[GoFrag Auto] Ошибка загрузки торрента:', url, e);
+            alert('Не удалось скачать .torrent. Прикрепи торрент-файл вручную.');
+            return false;
+        }
+    }
+
+    function waitFor(selector, timeoutMs = 10000) {
+        return new Promise((resolve, reject) => {
+            const found = document.querySelector(selector);
+            if (found) return resolve(found);
+            const start = Date.now();
+            const iv = setInterval(() => {
+                const el = document.querySelector(selector);
+                if (el) { clearInterval(iv); resolve(el); }
+                else if (Date.now() - start > timeoutMs) { clearInterval(iv); reject(new Error('timeout waiting for ' + selector)); }
+            }, 200);
+        });
+    }
+
+    async function fillForm() {
+        const raw = GM_getValue('gofrag_data');
+        if (!raw) return;
+        let data;
+        try {
+            data = JSON.parse(raw);
+        } catch (e) {
+            console.error('[GoFrag Auto] Не удалось прочитать данные парсера:', e);
+            GM_setValue('gofrag_parser_notice', JSON.stringify(['Не удалось прочитать переданные данные. Проверь заполнение формы вручную.']));
+            return;
+        }
+
+        const parserWarnings = Array.isArray(data.parserWarnings) ? data.parserWarnings.slice() : [];
+        try {
+            await waitFor('input[data-gfs-field="title"]');
+
+            setFieldValue(document.querySelector('input[data-gfs-field="title"]'), data.title);
+            setFieldValue(document.querySelector('input[data-gfs-field="steam_url"]'), data.steamUrl);
+            setFieldValue(document.querySelector('input[data-gfs-field="version"]'), data.version);
+            setCategory(document.querySelector('select[data-gfs-field="category_id"]'), data.genre);
+            setFieldValue(document.querySelector('input[data-gfs-field="source_url"]'), data.sourceUrl);
+            setFieldValue(document.querySelector('textarea[data-gfs-field="repack_description"]'), data.description);
+
+            if (data.screenshots && data.screenshots.length) {
+                let uploadedScreenshots = 0;
+                for (let i = 0; i < data.screenshots.length && i < 6; i++) {
+                    const uploaded = await setScreenshot(i + 1, data.screenshots[i]);
+                    if (uploaded) uploadedScreenshots++;
+                    else parserWarnings.push(`Не удалось загрузить скриншот №${i + 1}. Добавь его вручную.`);
+                    await delay(400);
+                }
+                if (uploadedScreenshots === 0) {
+                    parserWarnings.push('Ни один скриншот не загрузился автоматически.');
+                }
+            }
+
+            if (data.downloadMethod === 'torrent' && data.torrentUrl) {
+                const torrentUploaded = await setTorrentFile(data.torrentUrl, data.title);
+                if (!torrentUploaded) parserWarnings.push('Торрент-файл не прикрепился автоматически. Добавь .torrent вручную.');
+            } else if (data.downloadMethod === 'archive' && data.archiveLinks && data.archiveLinks.length) {
+                const archiveField = document.querySelector('textarea[data-gfs-archive-links]');
+                if (archiveField) {
+                    setFieldValue(archiveField, data.archiveLinks.join('\n'));
+                    setFieldValue(document.querySelector('input[data-gfs-field="archive_size_human"]'), data.archiveSizeText);
+                } else {
+                    parserWarnings.push('Не найдено поле для ссылок на архив. Заполни его вручную.');
+                }
+            }
+
+            GM_setValue('gofrag_data', '');
+            GM_setValue('gofrag_parser_notice', parserWarnings.length ? JSON.stringify([...new Set(parserWarnings)]) : '');
+            console.log('[GoFrag Auto] Форма заполнена. Проверь поля и добавь раздачу вручную.');
+        } catch (e) {
+            console.error('[GoFrag Auto] Ошибка заполнения формы:', e);
+            parserWarnings.push('Не удалось полностью заполнить форму. Проверь поля и файлы вручную.');
+            GM_setValue('gofrag_parser_notice', JSON.stringify([...new Set(parserWarnings)]));
+            GM_setValue('gofrag_data', '');
+        }
+    }
+
+    fillForm();
+})();
+
+(function () {
+    'use strict';
+
+    if (location.hostname !== 'gofrag.ru') return;
 
     const I18N = {
         en: {
@@ -33,9 +1154,10 @@
             tools: 'Tools', random: 'Random gradient', io: 'Export / Import', io_ph: 'Settings JSON', export: 'Export', import: 'Import', reset_all: 'Reset all',
             comments: 'Comments', show_loadall: 'Show "Load all" button', enter_submit: 'Submit on Enter',
             more_emoji: 'More emoji in the picker', emoji_extra: 'More emoji', emo_face: 'Faces', emo_hand: 'Hands', emo_animal: 'Animals', emo_food: 'Food', emo_thing: 'Things', emo_symbol: 'Symbols',
+            nav_parser: 'Auto-parser', parser: 'Game parser', parser_enabled: 'Show "Add to GoFrag" button on source sites', parser_hint: 'Open a source site and go to a game page: the button appears in the bottom right corner.', parser_sites: 'Sources', parser_byrut: 'Open ByRut', parser_igruha: 'Open Torrent-Igruha', parser_note: 'Torrent files from Torrent-Igruha must be attached manually: the site blocks script downloads.',
             feeder: 'Cat feeder', autofeed: 'Auto feed on page load', feednow: 'Feed now',
             devourer: 'Devourer cat',
-            changer: 'Cat changer', breed: 'Breed', stage: 'Stage', breed_auto: 'Auto (site default)', stage_auto: 'Auto (current)', reset: 'Reset',
+            changer: 'Cat changer', breed: 'Breed', stage: 'Stage', variant: 'VI appearance', breed_auto: 'Auto (site default)', breed_classic: 'Classic', breed_ginger: 'Ginger', breed_siamese: 'Siamese', breed_mainecoon: 'Maine coon', breed_bengal: 'Bengal', breed_neva: 'Neva', breed_black: 'Black', stage_auto: 'Auto (current)', variant_auto: 'Auto (A)', vi_a: 'A', vi_b: 'B', vi_c: 'C', reset: 'Reset',
             toast_loaded: 'Script loaded successfully', toast_open: 'Press {KEY} to open the menu',
             feeding: 'Feeding...', fed_today: 'Already fed today', fed_limit: 'Already fed / limit reached',
             fed_ok: 'Fed! +{INCOME} fish · balance {BAL} · streak {STREAK}', fed_new_stage: ' · new stage!',
@@ -63,9 +1185,10 @@
             tools: 'Инструменты', random: 'Случайный градиент', io: 'Экспорт / Импорт', io_ph: 'JSON настроек', export: 'Экспорт', import: 'Импорт', reset_all: 'Сбросить всё',
             comments: 'Комментарии', show_loadall: 'Кнопка «Загрузить все»', enter_submit: 'Отправка по Enter',
             more_emoji: 'Больше эмодзи в панели', emoji_extra: 'Ещё эмодзи', emo_face: 'Лица', emo_hand: 'Руки', emo_animal: 'Животные', emo_food: 'Еда', emo_thing: 'Вещи', emo_symbol: 'Символы',
+            nav_parser: 'Автопарсинг', parser: 'Парсер игр', parser_enabled: 'Кнопка «Добавить на GoFrag» на сайтах-источниках', parser_hint: 'Открой сайт-источник и зайди на страницу игры: справа внизу появится кнопка «Добавить на GoFrag».', parser_sites: 'Источники', parser_byrut: 'Открыть ByRut', parser_igruha: 'Открыть Торрент-Игруху', parser_note: 'С Торрент-Игрухи торрент-файл нужно прикреплять вручную: сайт запрещает скачивание скриптом.',
             feeder: 'Кормление кота', autofeed: 'Автокорм при загрузке', feednow: 'Покормить',
             devourer: 'Кот-поглотитель',
-            changer: 'Смена кота', breed: 'Порода', stage: 'Стадия', breed_auto: 'Авто (как на сайте)', stage_auto: 'Авто (текущая)', reset: 'Сброс',
+            changer: 'Смена кота', breed: 'Порода', stage: 'Стадия', variant: 'Вариант VI стадии', breed_auto: 'Авто (как на сайте)', breed_classic: 'Классический', breed_ginger: 'Рыжий', breed_siamese: 'Сиамский', breed_mainecoon: 'Мейн-кун', breed_bengal: 'Бенгальский', breed_neva: 'Невская маскарадная', breed_black: 'Чёрный', stage_auto: 'Авто (текущая)', variant_auto: 'Авто (A)', vi_a: 'A', vi_b: 'B', vi_c: 'C', reset: 'Сброс',
             toast_loaded: 'Скрипт успешно загружен', toast_open: 'Нажмите {KEY}, чтобы открыть меню',
             feeding: 'Кормлю...', fed_today: 'Сегодня уже кормлен', fed_limit: 'Уже кормлен / лимит',
             fed_ok: 'Покормлен! +{INCOME} рыб · баланс {BAL} · стрик {STREAK}', fed_new_stage: ' · новая стадия!',
@@ -187,7 +1310,8 @@
             watermarkCorner: 'tl'
         },
         gamepage: { commentsLoadAll: false, enterSubmit: false, moreEmoji: false },
-        cat: { autoFeed: false, autoFeedDevourer: false, breed: 'auto', stage: 'auto' },
+        parser: { enabled: true },
+        cat: { autoFeed: false, autoFeedDevourer: false, breed: 'auto', stage: 'auto', variant: 'auto' },
         theme: {
             tintColor1: '#4296fa', tintColor2: '#3169bd', tintAmount: 0,
             bgImage: '', bgBlur: 0, bgDim: 40,
@@ -343,7 +1467,7 @@
             [class*="icon-"], [class^="icon-"], .uk-icon, [class*="uk-icon-"] { font-family: IcoMoon !important; }
         ` : '';
     }
-    
+
     let curEl = null, curRaf = null;
     let curX = 0, curY = 0, targetX = 0, targetY = 0;
     const CURSOR_CUSTOM = ['dot', 'cross', 'circle', 'arrow'];
@@ -722,13 +1846,14 @@
                 <div class="gf-nav-item" data-pane="theme">${t('nav_theme')}</div>
                 <div class="gf-nav-item" data-pane="gamepage">${t('nav_gamepage')}</div>
                 <div class="gf-nav-item" data-pane="cat">${t('nav_cat')}</div>
+                <div class="gf-nav-item" data-pane="parser">${t('nav_parser')}</div>
                 <div class="gf-nav-item" data-pane="extras">${t('nav_extras')}</div>
             </div><div id="gf-content">
                 <div class="gf-pane sel" data-pane="home">
                     <div class="gf-home-toprow">
                         <div>
                             <div class="gf-home-hello">${t('welcome')} <b>${getCurrentUsername()}</b></div>
-                            <div class="gf-home-ver">gf.util v0.3.0</div>
+                            <div class="gf-home-ver">gf.util v${(typeof GM_info !== 'undefined' && GM_info.script.version) || '0.4.0'}</div>
                         </div>
                         <div class="gf-lang-switch">
                             <button type="button" class="gf-lang-btn gf-flag-ru${settings.general.lang === 'ru' ? ' active' : ''}" data-lang="ru" title="Русский"></button>
@@ -786,22 +1911,38 @@
                     ${tree('changer', t('changer'), `
                         <div class="gf-row"><div class="gf-selectwrap"><select class="gf-select" id="gf-catbreed">
                             <option value="auto">${t('breed_auto')}</option>
-                            <option value="classic">Classic</option>
-                            <option value="ginger">Ginger</option>
-                            <option value="siamese">Siamese</option>
-                            <option value="mainecoon">Maine coon</option>
-                            <option value="bengal">Bengal</option>
-                            <option value="neva">Neva</option>
-                            <option value="black">Black</option>
+                            <option value="classic">${t('breed_classic')}</option>
+                            <option value="ginger">${t('breed_ginger')}</option>
+                            <option value="siamese">${t('breed_siamese')}</option>
+                            <option value="mainecoon">${t('breed_mainecoon')}</option>
+                            <option value="bengal">${t('breed_bengal')}</option>
+                            <option value="neva">${t('breed_neva')}</option>
+                            <option value="black">${t('breed_black')}</option>
                         </select></div><span class="gf-lab">${t('breed')}</span></div>
                         <div class="gf-row"><div class="gf-selectwrap"><select class="gf-select" id="gf-catstage">
                             <option value="auto">${t('stage_auto')}</option>
-                            <option value="0">1</option>
-                            <option value="1">2</option>
-                            <option value="2">3</option>
-                            <option value="3">4</option>
+                            <option value="0">I</option>
+                            <option value="1">II</option>
+                            <option value="2">III</option>
+                            <option value="3">IV</option>
+                            <option value="4">V</option>
+                            <option value="5">VI</option>
                         </select></div><span class="gf-lab">${t('stage')}</span></div>
+                        <div class="gf-row"><div class="gf-selectwrap"><select class="gf-select" id="gf-catvariant">
+                            <option value="auto">${t('variant_auto')}</option>
+                            <option value="a">${t('vi_a')}</option>
+                            <option value="b">${t('vi_b')}</option>
+                            <option value="c">${t('vi_c')}</option>
+                        </select></div><span class="gf-lab">${t('variant')}</span></div>
                         <div class="gf-row"><button class="gf-btn" id="gf-catreset">${t('reset')}</button></div>
+                    `)}
+                </div>
+                <div class="gf-pane" data-pane="parser">
+                    ${tree('parser', t('parser'), `${checkRow('gf-parser-on', t('parser_enabled'), settings.parser.enabled)}<div class="gf-feed-status">${t('parser_hint')}</div>`)}
+                    ${tree('parsersites', t('parser_sites'), `
+                        <a class="gf-home-btn" href="https://byrutgame.org/" target="_blank" rel="noopener noreferrer">${t('parser_byrut')} <span class="gf-home-arrow">&#8599;</span></a>
+                        <a class="gf-home-btn" href="https://itorrents-igruha.org/" target="_blank" rel="noopener noreferrer">${t('parser_igruha')} <span class="gf-home-arrow">&#8599;</span></a>
+                        <div class="gf-feed-status">${t('parser_note')}</div>
                     `)}
                 </div>
                 <div class="gf-pane" data-pane="extras">
@@ -873,6 +2014,33 @@
             line2: tf('toast_open', { KEY: keyDisplayName(settings.window.hotkey) }),
             onClick: () => { if (openMenuHook) openMenuHook(); }
         });
+    }
+
+    function showParserNoticeWhenReady() {
+        let attempts = 0;
+        const timer = setInterval(() => {
+            attempts++;
+            const rawNotice = GM_getValue('gofrag_parser_notice', '');
+            if (rawNotice) {
+                clearInterval(timer);
+                GM_setValue('gofrag_parser_notice', '');
+                let warnings = [];
+                try {
+                    const parsed = JSON.parse(rawNotice);
+                    warnings = Array.isArray(parsed) ? parsed : [String(parsed)];
+                } catch (e) {
+                    warnings = [String(rawNotice)];
+                }
+                showToast({
+                    title: 'Автопарсер GoFrag',
+                    line1: 'Не всё удалось загрузить автоматически',
+                    line2: warnings.join(' · '),
+                    life: 9000
+                });
+            } else if (attempts >= 360) {
+                clearInterval(timer);
+            }
+        }, 500);
     }
 
     let wmEl = null, wmRaf = null, wmTimer = null;
@@ -997,16 +2165,14 @@ function syncWatermark() {
         return t('failed') + (d.message || d.error || res.msg || t('unknown_err'));
     }
 
-    const CAT_BREEDS = {
-        classic:  n => `/images/cat/cat_stage${n}.webp`,
-        ginger:   n => `/images/cat/breeds/ginger/stage${n}.webp`,
-        siamese:  n => `/images/cat/breeds/siamese/stage${n}.webp`,
-        mainecoon: n => `/images/cat/breeds/mainecoon/stage${n}.webp`,
-        bengal:   n => `/images/cat/breeds/bengal/stage${n}.webp`,
-        neva:     n => `/images/cat/breeds/neva/stage${n}.webp`,
-        black:    n => `/images/cat/breeds/black/stage${n}.webp`
-    };
+    const CAT_BREEDS = ['classic', 'ginger', 'siamese', 'mainecoon', 'bengal', 'neva', 'black'];
     let catSkinObserver = null;
+
+    function catImageUrl(breed, stage, variant) {
+        if (stage >= 5) return `/images/cat/appearances/${breed}/vi-${variant || 'a'}.webp`;
+        if (breed === 'classic') return `/images/cat/cat_stage${stage}.webp`;
+        return `/images/cat/breeds/${breed}/stage${stage}.webp`;
+    }
 
     function applyCatSkin() {
         const img = document.getElementById('gf-tama-img');
@@ -1014,12 +2180,19 @@ function syncWatermark() {
         if (!img.dataset.gfOrigSrc) img.dataset.gfOrigSrc = img.getAttribute('src') || '';
         const orig = img.dataset.gfOrigSrc;
 
-        let origBreed = 'classic', origStage = null;
-        let m = orig.match(/\/breeds\/([a-z]+)\/stage(\d)\.webp/i);
-        if (m) { origBreed = m[1].toLowerCase(); origStage = +m[2]; }
-        else {
-            m = orig.match(/cat_stage(\d)\.webp/i);
-            if (m) origStage = +m[1];
+        let origBreed = 'classic', origStage = null, origVariant = null;
+        let m = orig.match(/\/appearances\/([a-z]+)\/vi-([abc])\.webp/i);
+        if (m) {
+            origBreed = m[1].toLowerCase();
+            origStage = 5;
+            origVariant = m[2].toLowerCase();
+        } else {
+            m = orig.match(/\/breeds\/([a-z]+)\/stage([0-4])\.webp/i);
+            if (m) { origBreed = m[1].toLowerCase(); origStage = +m[2]; }
+            else {
+                m = orig.match(/cat_stage([0-4])\.webp/i);
+                if (m) origStage = +m[1];
+            }
         }
         if (origStage == null) {
             const tama = document.getElementById('gf-tama');
@@ -1027,15 +2200,11 @@ function syncWatermark() {
         }
 
         const breed = settings.cat.breed !== 'auto' ? settings.cat.breed : origBreed;
-        let stage = origStage != null ? origStage : 0;
-        if (settings.cat.stage !== 'auto') stage = parseInt(settings.cat.stage, 10) || 0;
+        const stage = settings.cat.stage !== 'auto' ? (parseInt(settings.cat.stage, 10) || 0) : (origStage != null ? origStage : 0);
+        const variant = settings.cat.variant !== 'auto' ? settings.cat.variant : (origVariant || 'a');
 
-        let url;
-        if (settings.cat.breed === 'auto' && settings.cat.stage === 'auto') {
-            url = orig;
-        } else {
-            url = (CAT_BREEDS[breed] || CAT_BREEDS.classic)(stage);
-        }
+        const allAuto = settings.cat.breed === 'auto' && settings.cat.stage === 'auto' && settings.cat.variant === 'auto';
+        const url = allAuto ? orig : catImageUrl(CAT_BREEDS.includes(breed) ? breed : 'classic', stage, variant);
         if (img.getAttribute('src') !== url) img.setAttribute('src', url);
 
         if (!catSkinObserver && img.isConnected) {
@@ -1448,6 +2617,10 @@ function syncWatermark() {
             syncMoreEmoji();
         });
 
+        qs('#gf-parser-on').addEventListener('change', e => {
+            settings.parser.enabled = e.target.checked; save();
+        });
+
         const feedStatus = qs('#gf-feed-status');
         const setFeedStatus = txt => { feedStatus.textContent = txt; };
         qs('#gf-autofeed').addEventListener('change', e => { settings.cat.autoFeed = e.target.checked; save(); });
@@ -1504,14 +2677,16 @@ function syncWatermark() {
             }, 1000);
         }
 
-        const breedSel = qs('#gf-catbreed'), stageSel = qs('#gf-catstage');
+        const breedSel = qs('#gf-catbreed'), stageSel = qs('#gf-catstage'), variantSel = qs('#gf-catvariant');
         breedSel.value = settings.cat.breed;
         stageSel.value = settings.cat.stage;
+        variantSel.value = settings.cat.variant || 'auto';
         breedSel.addEventListener('change', () => { settings.cat.breed = breedSel.value; save(); applyCatSkin(); });
         stageSel.addEventListener('change', () => { settings.cat.stage = stageSel.value; save(); applyCatSkin(); });
+        variantSel.addEventListener('change', () => { settings.cat.variant = variantSel.value; save(); applyCatSkin(); });
         qs('#gf-catreset').addEventListener('click', () => {
-            settings.cat.breed = 'auto'; settings.cat.stage = 'auto'; save();
-            breedSel.value = 'auto'; stageSel.value = 'auto';
+            settings.cat.breed = 'auto'; settings.cat.stage = 'auto'; settings.cat.variant = 'auto'; save();
+            breedSel.value = 'auto'; stageSel.value = 'auto'; variantSel.value = 'auto';
             applyCatSkin();
         });
 
@@ -1550,6 +2725,7 @@ function syncWatermark() {
         makeResizable(menu, grip);
 
         showStartupToast();
+        showParserNoticeWhenReady();
     }
 
     function makeDraggable(panel, handle) {
@@ -1609,3 +2785,7 @@ function syncWatermark() {
     if (document.readyState === 'complete' || document.readyState === 'interactive') setTimeout(initMenu, 50);
     else window.addEventListener('load', () => setTimeout(initMenu, 50));
 })();
+
+
+
+
